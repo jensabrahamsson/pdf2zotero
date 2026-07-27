@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.DS_Store
+*.bib
+*.tei.xml
+.idea/
+.vscode/
+# web UI output (user downloads)
+/output/
+
+# e2e bulk corpus and results (do not commit PDFs / mass .bib)
+/e2e/corpus/
+/e2e/results/
+/e2e/manifest.json
+/e2e/manifest_smoke.json

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pdf2zotero — PDF to Zotero BibTeX</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <p class="eyebrow">Local · GROBID · Crossref · Zotero</p>
+      <h1>pdf2zotero</h1>
+      <p class="lede">
+        Drop a scholarly PDF. Get it <strong>into Zotero</strong> as a library item with
+        metadata and the file attached — via a BibTeX file for
+        <strong>File&nbsp;→&nbsp;Import</strong>. Articles, books, and reports.
+      </p>
+    </header>
+
+    <section class="status-bar" id="statusBar" aria-live="polite">
+      <span class="dot" id="statusDot" data-state="unknown"></span>
+      <span id="statusText">Checking GROBID…</span>
+      <span class="status-meta" id="statusMeta"></span>
+    </section>
+
+    <main class="card">
+      <div
+        id="dropzone"
+        class="dropzone"
+        tabindex="0"
+        role="button"
+        aria-label="Drop a PDF here or click to choose a file"
+      >
+        <div class="dropzone-inner">
+          <div class="icon-ring" aria-hidden="true">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 3v12" stroke-linecap="round"/>
+              <path d="M7 10l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 18h16" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <p class="drop-title">Drag &amp; drop a PDF</p>
+          <p class="drop-sub">or click to browse · max 80&nbsp;MB</p>
+        </div>
+        <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden />
+      </div>
+
+      <div class="options">
+        <label class="toggle">
+          <input type="checkbox" id="noDoi" />
+          <span>Offline mode — skip doi.org / Crossref</span>
+        </label>
+      </div>
+
+      <div id="progress" class="progress hidden" aria-hidden="true">
+        <div class="progress-track"><div class="progress-bar"></div></div>
+        <p id="progressText">Working…</p>
+      </div>
+
+      <div id="error" class="banner error hidden" role="alert"></div>
+
+      <section id="result" class="result hidden">
+        <div class="result-head">
+          <div>
+            <p class="result-label">Ready to import into Zotero</p>
+            <h2 id="resultTitle">entry.bib</h2>
+            <p class="result-source" id="resultSource"></p>
+          </div>
+          <div class="result-actions">
+            <button type="button" class="btn primary" id="downloadBtn">Download .bib</button>
+            <button type="button" class="btn ghost" id="copyBtn">Copy BibTeX</button>
+          </div>
+        </div>
+        <pre class="bib-preview" id="bibPreview"></pre>
+        <dl class="paths">
+          <div>
+            <dt>Saved PDF</dt>
+            <dd id="pdfPath">—</dd>
+          </div>
+          <div>
+            <dt>Saved BibTeX</dt>
+            <dd id="bibPath">—</dd>
+          </div>
+        </dl>
+        <div class="import-hint">
+          <p><strong>Get this into Zotero (item + PDF)</strong> — steps follow
+            <a href="https://www.zotero.org/support" target="_blank" rel="noopener">Zotero official documentation</a>:</p>
+          <ol class="import-steps">
+            <li>Open <strong>Zotero</strong>
+              (<a href="https://www.zotero.org/download/" target="_blank" rel="noopener">download</a>.</li>
+            <li><strong>File → Import…</strong> → <strong>A file</strong>
+              (<a href="https://www.zotero.org/support/kb/importing_standardized_formats" target="_blank" rel="noopener">import formats</a>.</li>
+            <li>Select the saved <code>.bib</code> path shown above.</li>
+            <li>Select the new parent item
+              (<a href="https://www.zotero.org/support/adding_items_to_zotero" target="_blank" rel="noopener">adding items</a>.</li>
+            <li>If no PDF under it: drag the saved PDF onto that item
+              (<a href="https://www.zotero.org/support/attaching_files#drag_and_drop" target="_blank" rel="noopener">attaching files</a>
+              (or paperclip → Attach Stored Copy of File…). Prefer a
+              <a href="https://www.zotero.org/support/attaching_files#stored_files" target="_blank" rel="noopener">stored copy</a>.</li>
+            <li>Expand the item and double-click the PDF to verify.</li>
+          </ol>
+          <p class="import-note">
+            The <code>.bib</code> is metadata. The <code>.pdf</code> is the document — attach it if import did not.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>
+        Pipeline: PDF → GROBID → (PDF Info / Crossref) → BibTeX.
+        Runs only on your machine · no cloud upload of your library.
+      </p>
+      <p class="foot-links">
+        <a href="https://github.com/jensabrahamsson/pdf2zotero" target="_blank" rel="noopener">GitHub</a>
+        <span aria-hidden="true">·</span>
+        <a href="https://www.zotero.org/support" target="_blank" rel="noopener">Zotero docs</a>
+        <span aria-hidden="true">·</span>
+        <span id="outDirHint"></span>
+      </p>
+    </footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
