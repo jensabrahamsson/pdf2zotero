@@ -272,6 +272,9 @@ Step-by-step recovery: [GETTING_STARTED.md → Troubleshooting](GETTING_STARTED.
 
 ## License
 
+Copyright (c) 2026 Jens Abrahamsson.  
 [MIT License](LICENSE) — free to use, modify, and redistribute, with the copyright notice retained.
+
+The CLI and web UI print this notice on startup / `--help`.
 
 GROBID, doi.org, Crossref, and Zotero have their own terms; follow each project’s policy.

@@ -11,6 +11,8 @@ Workflow:
    (@article, @book, or @techreport).
 
 Requires only Python 3.9+ and a running GROBID service.
+
+Copyright (c) 2026 Jens Abrahamsson. Released under the MIT License.
 """
 
 from __future__ import annotations
@@ -33,6 +35,16 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
+
+# Shown in CLI --help epilog, startup banners, and the web UI footer.
+COPYRIGHT = "Copyright (c) 2026 Jens Abrahamsson"
+LICENSE_NAME = "MIT License"
+LICENSE_NOTICE = f"{COPYRIGHT}. Released under the {LICENSE_NAME}."
+CLI_EPILOG = (
+    f"{LICENSE_NOTICE}\n"
+    "See LICENSE in the project root or "
+    "https://github.com/jensabrahamsson/pdf2zotero/blob/main/LICENSE"
+)
 
 TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
 # DOI suffix may include punctuation; strip only unbalanced/trailing noise in clean_doi.
@@ -1054,7 +1066,9 @@ def main() -> int:
         description=(
             "Convert scholarly PDFs (articles, books, and reports) "
             "to Zotero-importable BibTeX."
-        )
+        ),
+        epilog=CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("pdfs", nargs="+", type=Path, help="One or more PDF files")
     parser.add_argument(
@@ -1084,6 +1098,8 @@ def main() -> int:
         help="Also save GROBID's TEI XML beside the .bib file",
     )
     args = parser.parse_args()
+
+    print(LICENSE_NOTICE, file=sys.stderr)
 
     if args.output and len(args.pdfs) != 1:
         parser.error("--output can only be used with one PDF")

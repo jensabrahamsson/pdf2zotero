@@ -4,6 +4,8 @@ pdf2zotero web UI — local drag-and-drop front end for the conversion pipeline.
 
 Stdlib only. Reuses pdf2zotero.convert_one. Bind to localhost by default.
 Requires a running GROBID server (same as the CLI).
+
+Copyright (c) 2026 Jens Abrahamsson. Released under the MIT License.
 """
 
 from __future__ import annotations
@@ -269,6 +271,9 @@ class Handler(BaseHTTPRequestHandler):
                     "output_dir": str(STATE.output_dir.resolve()),
                     "no_doi_lookup": STATE.no_doi_lookup,
                     "timeout": STATE.timeout,
+                    "copyright": pdf2zotero.COPYRIGHT,
+                    "license": pdf2zotero.LICENSE_NAME,
+                    "license_notice": pdf2zotero.LICENSE_NOTICE,
                 },
             )
             return
@@ -370,7 +375,9 @@ def main() -> int:
     global STATE
 
     parser = argparse.ArgumentParser(
-        description="Local web UI for pdf2zotero (drag-and-drop PDF → BibTeX)."
+        description="Local web UI for pdf2zotero (drag-and-drop PDF → BibTeX).",
+        epilog=pdf2zotero.CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8765, help="Port (default: 8765)")
@@ -417,6 +424,7 @@ def main() -> int:
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     url = f"http://{args.host}:{args.port}/"
+    print(pdf2zotero.LICENSE_NOTICE, file=sys.stderr)
     print(f"pdf2zotero web UI → {url}")
     print(f"GROBID           → {args.grobid_url}")
     print(f"Output directory → {STATE.output_dir.resolve()}")

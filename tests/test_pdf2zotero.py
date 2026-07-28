@@ -101,6 +101,32 @@ TEI_REPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+class CopyrightLicenseTests(unittest.TestCase):
+    def test_notice_constants(self):
+        self.assertIn("2026", pdf2zotero.COPYRIGHT)
+        self.assertIn("Jens Abrahamsson", pdf2zotero.COPYRIGHT)
+        self.assertIn("MIT", pdf2zotero.LICENSE_NOTICE)
+        self.assertIn(pdf2zotero.COPYRIGHT, pdf2zotero.CLI_EPILOG)
+
+    def test_cli_help_includes_license(self):
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+
+        buf_out, buf_err = io.StringIO(), io.StringIO()
+        old_argv = sys.argv
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                with redirect_stdout(buf_out), redirect_stderr(buf_err):
+                    sys.argv = ["pdf2zotero.py", "--help"]
+                    pdf2zotero.main()
+            self.assertEqual(ctx.exception.code, 0)
+        finally:
+            sys.argv = old_argv
+        help_text = buf_out.getvalue() + buf_err.getvalue()
+        self.assertIn("Copyright (c) 2026 Jens Abrahamsson", help_text)
+        self.assertIn("MIT License", help_text)
+
+
 class CleanDoiTests(unittest.TestCase):
     def test_strips_url_and_prefix(self):
         self.assertEqual(
