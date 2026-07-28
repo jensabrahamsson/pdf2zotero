@@ -148,7 +148,7 @@ Works for **articles, books, and reports**. Local fallbacks use `@article`, `@bo
 |--|-------------|
 | Python | 3.9+ floor (recommend 3.11–3.14; 3.9 is EOL) — `python3 --version` |
 | Containers | Docker Desktop **or** Colima + Docker CLI |
-| GROBID | e.g. `docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf` then `curl -s http://localhost:8070/api/isalive` |
+| GROBID | `./scripts/setup-grobid.sh up` then `curl -s http://localhost:8070/api/isalive` (see [PREREQUISITES.md](PREREQUISITES.md)) |
 | Zotero | [Desktop app](https://www.zotero.org/download/) for library import |
 | Network | doi.org + Crossref (optional with `--no-doi-lookup`; does not block remote GROBID) |
 

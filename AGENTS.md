@@ -55,6 +55,7 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 pdf2zotero.py      # CLI + conversion library
 webui.py           # local drag-and-drop HTTP UI (stdlib)
 webui_static/      # index.html, styles.css, app.js
+scripts/           # setup-grobid.sh (Docker GROBID up/down/purge)
 tests/             # stdlib unittest (pdf2zotero + webui)
 e2e/               # live OA harness + harness unit tests
 .github/workflows/ # CI (py_compile + unittest)

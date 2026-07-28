@@ -279,7 +279,21 @@ Service API (overview): [GROBID service](https://grobid.readthedocs.io/en/latest
 
 You do **not** install GROBID via pip for this project. You run a **container**.
 
-### 3.1 Official pinned images (preferred)
+### 3.1 Setup script (recommended)
+
+From the repo root, with Docker Desktop **or** Colima available:
+
+```bash
+chmod +x scripts/setup-grobid.sh   # once
+./scripts/setup-grobid.sh up       # pull + start + wait until alive
+./scripts/setup-grobid.sh status
+./scripts/setup-grobid.sh down     # stop container only
+./scripts/setup-grobid.sh purge    # stop container + delete GROBID images (frees disk)
+```
+
+- Default image: `grobid/grobid:0.9.0-crf` (lighter).  
+- Full models: `./scripts/setup-grobid.sh up --full` → `grobid/grobid:0.9.0-full`.  
+- Starts Colima automatically if `docker info` fails and `colima` is installed.
 
 Follow [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/).  
 Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
@@ -289,65 +303,33 @@ Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
 | `grobid/grobid:0.9.0-crf` | Default / lighter (CRF models) |
 | `grobid/grobid:0.9.0-full` | Full deep-learning models (heavier) |
 
+### 3.2 Manual `docker run` (optional)
+
 Dedicated terminal (leave it open). `--init` and `core=0` match the upstream guide:
 
 ```bash
 docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 ```
 
-Full models:
+First pull is large. Prefer an **explicit tag**; `latest` is not always published.
 
-```bash
-docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-full
-```
-
-First pull is large. Prefer an **explicit tag**; `latest` is not always published.  
-(Older third-party tags such as `lfoppiano/grobid:0.8.x` may still work but are **not** the documented default.)
-
-### 3.2 Check alive
-
-New terminal:
+### 3.3 Check alive
 
 ```bash
 curl -s http://localhost:8070/api/isalive
+# or: ./scripts/setup-grobid.sh status
 ```
 
 Expect a body containing `true`.
 
-### 3.3 Apple Silicon / Colima issues
+### 3.4 Apple Silicon / Colima issues
 
 | Symptom | Likely cause | Try |
 |---------|--------------|-----|
-| `PR_SET_CHILD_SUBREAPER` / tini fatal | Default entrypoint under some VMs | Ensure Docker/Colima is current; try `--init` as above |
-| TensorFlow / AVX, never alive | Full DL image under amd64 emulation | Prefer **`0.9.0-crf`** (lighter) |
+| `PR_SET_CHILD_SUBREAPER` / tini fatal | Default entrypoint under some VMs | Ensure Docker/Colima is current; script uses `--init` |
+| TensorFlow / AVX, never alive | Full DL image under amd64 emulation | Prefer **`0.9.0-crf`** / omit `--full` |
 
-Named container example:
-
-```bash
-docker rm -f grobid 2>/dev/null
-
-docker pull grobid/grobid:0.9.0-crf
-
-docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 \
-  grobid/grobid:0.9.0-crf
-```
-
-```bash
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  curl -sf http://localhost:8070/api/isalive && break
-  sleep 5
-done
-curl -s http://localhost:8070/api/isalive
-docker logs grobid   # if still failing
-```
-
-Stop named container:
-
-```bash
-docker rm -f grobid
-```
-
-### 3.4 Done when
+### 3.5 Done when
 
 ```bash
 curl -s http://localhost:8070/api/isalive
