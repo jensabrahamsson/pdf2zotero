@@ -1,8 +1,5 @@
 # Prerequisites
 
-**Spelling:** English uses one word — *prerequisites* (not “pre-requisites”).  
-This file is therefore named **`PREREQUISITES.md`**.
-
 Everything you need **before** running `pdf2zotero.py` or `webui.py`.  
 After this, continue with **[GETTING_STARTED.md](GETTING_STARTED.md)** (convert → import into Zotero).
 
