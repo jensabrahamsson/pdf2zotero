@@ -19,6 +19,7 @@
   const outDirHint = document.getElementById("outDirHint");
 
   let lastResult = null;
+  let busy = false;
 
   function showError(msg) {
     errorEl.textContent = msg;
@@ -30,11 +31,17 @@
     errorEl.classList.add("hidden");
   }
 
-  function setBusy(busy) {
-    dropzone.classList.toggle("busy", busy);
-    progress.classList.toggle("hidden", !busy);
-    progress.setAttribute("aria-hidden", busy ? "false" : "true");
-    if (busy) {
+  function setBusy(isBusy) {
+    busy = isBusy;
+    dropzone.classList.toggle("busy", isBusy);
+    dropzone.classList.toggle("disabled", isBusy);
+    dropzone.setAttribute("aria-busy", isBusy ? "true" : "false");
+    dropzone.tabIndex = isBusy ? -1 : 0;
+    fileInput.disabled = isBusy;
+    noDoi.disabled = isBusy;
+    progress.classList.toggle("hidden", !isBusy);
+    progress.setAttribute("aria-hidden", isBusy ? "false" : "true");
+    if (isBusy) {
       progressText.textContent = "Reading PDF → GROBID → metadata…";
       result.classList.add("hidden");
     }
@@ -55,6 +62,10 @@
       if (data.output_dir) {
         outDirHint.textContent = `Saves to ${data.output_dir}`;
       }
+      // Initialize offline checkbox from server default once (not while busy).
+      if (!busy && typeof data.no_doi_lookup === "boolean" && !noDoi.dataset.userTouched) {
+        noDoi.checked = !!data.no_doi_lookup;
+      }
     } catch {
       statusDot.dataset.state = "bad";
       statusText.textContent = "Web UI unreachable";
@@ -62,18 +73,30 @@
     }
   }
 
+  noDoi.addEventListener("change", () => {
+    noDoi.dataset.userTouched = "1";
+  });
+
   function showResult(data) {
     lastResult = data;
     result.classList.remove("hidden");
     resultTitle.textContent = data.bib_filename || "result.bib";
-    resultSource.textContent = data.source ? `Source: ${data.source}` : "";
+    const offlineNote =
+      typeof data.no_doi_lookup === "boolean"
+        ? data.no_doi_lookup
+          ? " · offline (no doi.org/Crossref)"
+          : " · online metadata"
+        : "";
+    resultSource.textContent = data.source
+      ? `Source: ${data.source}${offlineNote}`
+      : offlineNote.trim();
     bibPreview.textContent = data.bibtex || "";
     pdfPath.textContent = data.pdf_path || "—";
     bibPath.textContent = data.bib_path || "—";
   }
 
   async function convertFile(file) {
-    if (!file) return;
+    if (!file || busy) return;
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       showError("Only PDF files are accepted.");
       return;
@@ -84,7 +107,8 @@
 
     const body = new FormData();
     body.append("file", file, file.name);
-    if (noDoi.checked) body.append("no_doi_lookup", "true");
+    // Always send explicit override so server default is never ambiguous.
+    body.append("no_doi_lookup", noDoi.checked ? "true" : "false");
 
     try {
       const res = await fetch("/api/convert", { method: "POST", body });
@@ -102,8 +126,12 @@
     }
   }
 
-  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("click", () => {
+    if (busy) return;
+    fileInput.click();
+  });
   dropzone.addEventListener("keydown", (e) => {
+    if (busy) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       fileInput.click();
@@ -120,7 +148,7 @@
     dropzone.addEventListener(evt, (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dropzone.classList.add("dragover");
+      if (!busy) dropzone.classList.add("dragover");
     });
   });
 
@@ -133,6 +161,7 @@
   });
 
   dropzone.addEventListener("drop", (e) => {
+    if (busy) return;
     const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     convertFile(file);
   });

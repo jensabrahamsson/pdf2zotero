@@ -27,6 +27,8 @@ import pdf2zotero
 
 STATIC_DIR = Path(__file__).resolve().parent / "webui_static"
 DEFAULT_OUTPUT = Path.home() / "Downloads" / "pdf2zotero"
+MAX_UPLOAD_BYTES = 80 * 1024 * 1024
+CSP_SELF = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'self'; form-action 'self'"
 
 
 class AppState:
@@ -67,6 +69,7 @@ def safe_filename(name: str) -> str:
 
 
 def unique_path(directory: Path, filename: str) -> Path:
+    """Allocate a free path under directory. Caller must hold STATE.lock when racing."""
     candidate = directory / filename
     if not candidate.exists():
         return candidate
@@ -79,6 +82,35 @@ def unique_path(directory: Path, filename: str) -> Path:
     raise RuntimeError("Could not allocate a unique output filename.")
 
 
+def parse_bool_token(raw: str) -> bool | None:
+    """Parse form bool; return None if empty/unknown."""
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def looks_like_pdf(data: bytes) -> bool:
+    return b"%PDF" in data[:1024]
+
+
+def origin_matches_host(origin: str, host: str) -> bool:
+    """True when browser Origin host:port matches the request Host header."""
+    try:
+        parsed = urlparse(origin)
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    origin_host = (parsed.netloc or "").lower()
+    req_host = (host or "").lower()
+    if not origin_host or not req_host:
+        return False
+    return origin_host == req_host
+
+
 def convert_upload(
     pdf_bytes: bytes,
     original_name: str,
@@ -89,27 +121,32 @@ def convert_upload(
     filename = safe_filename(original_name)
     STATE.output_dir.mkdir(parents=True, exist_ok=True)
 
-    pdf_path = unique_path(STATE.output_dir, filename)
-    bib_path = pdf_path.with_suffix(".bib")
+    effective_no_doi = (
+        STATE.no_doi_lookup if no_doi_lookup is None else no_doi_lookup
+    )
 
+    # Allocate unique paths under the lock; convert outside so uploads can proceed
+    # concurrently once names are reserved.
     with STATE.lock:
+        pdf_path = unique_path(STATE.output_dir, filename)
+        # Reserve the name so concurrent uploads cannot pick the same path.
         pdf_path.write_bytes(pdf_bytes)
-        try:
-            source = pdf2zotero.convert_one(
-                pdf_path=pdf_path,
-                output_path=bib_path,
-                grobid_url=STATE.grobid_url,
-                timeout=STATE.timeout,
-                no_doi_lookup=STATE.no_doi_lookup
-                if no_doi_lookup is None
-                else no_doi_lookup,
-                save_tei=False,
-            )
-        except Exception:
-            # Leave PDF for inspection; remove empty/partial bib if any.
-            if bib_path.exists() and bib_path.stat().st_size == 0:
-                bib_path.unlink(missing_ok=True)
-            raise
+        bib_path = pdf_path.with_suffix(".bib")
+
+    try:
+        source = pdf2zotero.convert_one(
+            pdf_path=pdf_path,
+            output_path=bib_path,
+            grobid_url=STATE.grobid_url,
+            timeout=STATE.timeout,
+            no_doi_lookup=effective_no_doi,
+            save_tei=False,
+        )
+    except Exception:
+        # Leave PDF for inspection; remove any partial/failed .bib.
+        if bib_path.exists():
+            bib_path.unlink(missing_ok=True)
+        raise
 
     bibtex = bib_path.read_text(encoding="utf-8")
     return {
@@ -121,6 +158,7 @@ def convert_upload(
         "bib_path": str(bib_path.resolve()),
         "pdf_path": str(pdf_path.resolve()),
         "output_dir": str(STATE.output_dir.resolve()),
+        "no_doi_lookup": effective_no_doi,
     }
 
 
@@ -171,14 +209,25 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+    def _security_headers(self, content_type: str) -> dict[str, str]:
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        }
+        if content_type.startswith("text/html"):
+            headers["Content-Security-Policy"] = CSP_SELF
+        return headers
+
     def _send(self, code: int, body: bytes, content_type: str, headers: dict | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        merged = self._security_headers(content_type)
         if headers:
-            for key, value in headers.items():
-                self.send_header(key, value)
+            merged.update(headers)
+        for key, value in merged.items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -189,9 +238,11 @@ class Handler(BaseHTTPRequestHandler):
     def _serve_static(self, rel: str) -> None:
         if rel in {"", "/"}:
             rel = "/index.html"
-        # Prevent path traversal.
-        candidate = (STATIC_DIR / rel.lstrip("/")).resolve()
-        if not str(candidate).startswith(str(STATIC_DIR.resolve())):
+        # Prevent path traversal with Path.relative_to.
+        try:
+            candidate = (STATIC_DIR / rel.lstrip("/")).resolve()
+            candidate.relative_to(STATIC_DIR.resolve())
+        except (OSError, ValueError):
             self._send(403, b"Forbidden", "text/plain; charset=utf-8")
             return
         if not candidate.is_file():
@@ -232,6 +283,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"ok": False, "error": "Not found"})
             return
 
+        # Browser cross-origin POSTs must match Host; tools without Origin are allowed.
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host", "")
+        if origin and not origin_matches_host(origin, host):
+            self._send_json(403, {"ok": False, "error": "Cross-origin request rejected"})
+            return
+
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             self._send_json(400, {"ok": False, "error": "Expected multipart/form-data"})
@@ -241,11 +299,15 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
-        if length <= 0 or length > 80 * 1024 * 1024 + 1024 * 1024:
+        if length <= 0 or length > MAX_UPLOAD_BYTES + 1024 * 1024:
             self._send_json(400, {"ok": False, "error": "Invalid or too large upload"})
             return
 
         body = self.rfile.read(length)
+        if len(body) != length:
+            self._send_json(400, {"ok": False, "error": "Incomplete request body"})
+            return
+
         try:
             form = parse_multipart(body, content_type)
         except Exception as exc:
@@ -264,14 +326,28 @@ class Handler(BaseHTTPRequestHandler):
         if not pdf_bytes:
             self._send_json(400, {"ok": False, "error": "Empty file"})
             return
-        if len(pdf_bytes) > 80 * 1024 * 1024:
+        if len(pdf_bytes) > MAX_UPLOAD_BYTES:
             self._send_json(400, {"ok": False, "error": "File too large (max 80 MB)"})
             return
+        if not looks_like_pdf(pdf_bytes):
+            self._send_json(
+                400,
+                {"ok": False, "error": "File does not look like a PDF (%PDF signature missing)"},
+            )
+            return
 
-        no_doi = False
+        # Missing field → server default; explicit true/false → form override.
+        no_doi: bool | None = None
         if "no_doi_lookup" in form:
-            raw = form["no_doi_lookup"][1].decode("utf-8", errors="replace").strip()
-            no_doi = raw.lower() in {"1", "true", "yes", "on"}
+            raw = form["no_doi_lookup"][1].decode("utf-8", errors="replace")
+            parsed_bool = parse_bool_token(raw)
+            if parsed_bool is None:
+                self._send_json(
+                    400,
+                    {"ok": False, "error": "Invalid no_doi_lookup value (use true/false)"},
+                )
+                return
+            no_doi = parsed_bool
 
         try:
             result = convert_upload(pdf_bytes, str(filename), no_doi_lookup=no_doi)
@@ -344,6 +420,8 @@ def main() -> int:
     print(f"pdf2zotero web UI → {url}")
     print(f"GROBID           → {args.grobid_url}")
     print(f"Output directory → {STATE.output_dir.resolve()}")
+    if STATE.no_doi_lookup:
+        print("DOI lookup      → off by default (form can override)")
     if not grobid_alive(args.grobid_url):
         print(
             "Warning: GROBID does not appear to be alive. "

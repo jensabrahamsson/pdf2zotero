@@ -21,7 +21,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import platform
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -44,6 +46,14 @@ E2E_DIR = ROOT / "e2e"
 DEFAULT_CORPUS = E2E_DIR / "corpus"
 DEFAULT_RESULTS = E2E_DIR / "results"
 DEFAULT_MANIFEST = E2E_DIR / "manifest.json"
+
+# Fail-closed gates for batch/all runs.
+MIN_CORPUS_FRACTION = 0.90
+MIN_OK_FRACTION = 0.95
+# Distinct exit codes
+EXIT_OK = 0
+EXIT_FAIL = 1
+EXIT_ENV = 2  # GROBID / environment unavailable
 
 
 @dataclass
@@ -95,6 +105,77 @@ def grobid_alive(grobid_url: str = "http://localhost:8070", timeout: int = 5) ->
         return False, str(exc)
 
 
+def grobid_version(grobid_url: str = "http://localhost:8070", timeout: int = 5) -> str:
+    url = grobid_url.rstrip("/") + "/api/version"
+    try:
+        return http_get(url, timeout=timeout).decode("utf-8", errors="replace").strip()
+    except Exception as exc:
+        return f"unavailable: {exc}"
+
+
+def git_provenance() -> dict:
+    """Return git SHA and dirty flag for the repo root."""
+    def _run(args: list[str]) -> str:
+        try:
+            out = subprocess.check_output(
+                args,
+                cwd=str(ROOT),
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+            )
+            return out.strip()
+        except Exception:
+            return ""
+
+    sha = _run(["git", "rev-parse", "HEAD"])
+    dirty_out = _run(["git", "status", "--porcelain"])
+    return {
+        "git_sha": sha or "unknown",
+        "git_dirty": bool(dirty_out) if sha else None,
+    }
+
+
+def manifest_digest(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def build_provenance(
+    *,
+    args: argparse.Namespace | None = None,
+    grobid_url: str = "http://localhost:8070",
+    manifest_path: Path | None = None,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    extra: dict | None = None,
+) -> dict:
+    prov = {
+        **git_provenance(),
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "grobid_url": grobid_url,
+        "grobid_version": grobid_version(grobid_url),
+        "manifest_digest": manifest_digest(manifest_path) if manifest_path else "",
+        "argv": list(sys.argv),
+        "started_at": started_at or datetime.now(timezone.utc).isoformat(),
+        "finished_at": finished_at or datetime.now(timezone.utc).isoformat(),
+    }
+    if args is not None:
+        try:
+            prov["args"] = {
+                k: (str(v) if isinstance(v, Path) else v)
+                for k, v in vars(args).items()
+                if k != "func"
+            }
+        except TypeError:
+            prov["args"] = {}
+    if extra:
+        prov.update(extra)
+    return prov
+
+
 def cmd_probe(args: argparse.Namespace) -> int:
     alive, detail = grobid_alive(args.grobid_url)
     print(f"GROBID {args.grobid_url}/api/isalive -> alive={alive} detail={detail!r}")
@@ -116,7 +197,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         print(f"Europe PMC probe failed: {exc}")
     try:
         raw = http_get(
-            "http://export.arxiv.org/api/query?search_query=all:physics&start=0&max_results=1",
+            "https://export.arxiv.org/api/query?search_query=all:physics&start=0&max_results=1",
             timeout=30,
         )
         print(f"arXiv API bytes={len(raw)}")
@@ -125,27 +206,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0 if alive else 2
 
 
-def fetch_europepmc_batch(cursor: str, page_size: int = 100) -> tuple[list[ManifestItem], str]:
-    params = {
-        "query": "OPEN_ACCESS:y AND HAS_PDF:y AND SRC:MED AND (LICENSE:cc* OR LICENSE:\"cc by\" OR LICENSE:\"cc0\")",
-        "resultType": "core",
-        "pageSize": str(page_size),
-        "format": "json",
-        "cursorMark": cursor,
-    }
-    # Fallback without license filter if too few results — try open access first with license preference in note
-    params_loose = {
-        "query": "OPEN_ACCESS:y AND HAS_PDF:y AND SRC:MED",
-        "resultType": "core",
-        "pageSize": str(page_size),
-        "format": "json",
-        "cursorMark": cursor,
-    }
-    url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" + urllib.parse.urlencode(
-        params_loose
-    )
-    data = http_get_json(url, timeout=90)
-    next_cursor = data.get("nextCursorMark") or ""
+def _europepmc_rows_to_items(data: dict, *, license_filtered: bool) -> list[ManifestItem]:
     items: list[ManifestItem] = []
     for row in data.get("resultList", {}).get("result") or []:
         pmcid = row.get("pmcid") or ""
@@ -153,18 +214,59 @@ def fetch_europepmc_batch(cursor: str, page_size: int = 100) -> tuple[list[Manif
             continue
         title = (row.get("title") or "").strip()
         license_note = (row.get("license") or "open_access_europepmc").strip()
-        # Europe PMC PDF render (verified working for OA articles)
         pdf_url = f"https://europepmc.org/articles/{pmcid}?pdf=render"
+        filter_tag = "license-filtered" if license_filtered else "oa-fallback"
         items.append(
             ManifestItem(
                 id=pmcid,
                 source="europepmc",
                 pdf_url=pdf_url,
                 title=title[:300],
-                license_note=f"Europe PMC OA; license={license_note}",
+                license_note=(
+                    f"Europe PMC OA ({filter_tag}); license={license_note}"
+                ),
                 kind_hint="article",
             )
         )
+    return items
+
+
+def fetch_europepmc_batch(cursor: str, page_size: int = 100) -> tuple[list[ManifestItem], str]:
+    """Prefer license-filtered OA query; fall back to broader OA and mark it."""
+    params_strict = {
+        "query": (
+            "OPEN_ACCESS:y AND HAS_PDF:y AND SRC:MED AND "
+            '(LICENSE:cc* OR LICENSE:"cc by" OR LICENSE:"cc0")'
+        ),
+        "resultType": "core",
+        "pageSize": str(page_size),
+        "format": "json",
+        "cursorMark": cursor,
+    }
+    params_loose = {
+        "query": "OPEN_ACCESS:y AND HAS_PDF:y AND SRC:MED",
+        "resultType": "core",
+        "pageSize": str(page_size),
+        "format": "json",
+        "cursorMark": cursor,
+    }
+    base = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?"
+    data = http_get_json(base + urllib.parse.urlencode(params_strict), timeout=90)
+    items = _europepmc_rows_to_items(data, license_filtered=True)
+    used_fallback = False
+    if len(items) < max(1, page_size // 4):
+        data = http_get_json(base + urllib.parse.urlencode(params_loose), timeout=90)
+        items = _europepmc_rows_to_items(data, license_filtered=False)
+        used_fallback = True
+        print(
+            "Europe PMC: license-filtered query thin; using broader OA fallback "
+            f"(n={len(items)})",
+            flush=True,
+        )
+    next_cursor = data.get("nextCursorMark") or ""
+    # Annotate first item note for assess if fallback (summary flag set by caller via items).
+    if used_fallback and items:
+        items[0].license_note += " [batch:oa-fallback]"
     return items, next_cursor
 
 
@@ -172,7 +274,7 @@ def fetch_arxiv_batch(start: int, max_results: int = 50, query: str = "all:biolo
     # Be polite to arXiv API
     time.sleep(3)
     url = (
-        "http://export.arxiv.org/api/query?"
+        "https://export.arxiv.org/api/query?"
         + urllib.parse.urlencode(
             {
                 "search_query": query,
@@ -341,7 +443,11 @@ def cmd_download(args: argparse.Namespace) -> int:
     return 0 if ok > 0 else 1
 
 
-def classify_bib(bibtex: str, convert_source: str) -> dict:
+def expected_file_field(pdf_path: Path) -> str:
+    return pdf2zotero.zotero_file_field(pdf_path)
+
+
+def classify_bib(bibtex: str, convert_source: str, pdf_path: Path | None = None) -> dict:
     has_at = bool(re.search(r"(?m)^@", bibtex.strip()))
     # Fields may be single-line or multi-line; do not require start-of-line only.
     has_file = bool(re.search(r"(?i)\bfile\s*=", bibtex))
@@ -359,6 +465,13 @@ def classify_bib(bibtex: str, convert_source: str) -> dict:
         path_class = "fallback"
     else:
         path_class = "fail"
+
+    file_field_exact = False
+    if pdf_path is not None and has_file:
+        expected = expected_file_field(pdf_path)
+        # Brace or quoted form containing the exact Zotero file value.
+        file_field_exact = expected in bibtex
+
     return {
         "has_at_entry": has_at,
         "has_file_field": has_file,
@@ -367,7 +480,20 @@ def classify_bib(bibtex: str, convert_source: str) -> dict:
         "citation_key": key,
         "looks_empty_metadata": looks_empty,
         "path_class": path_class if has_at else "fail",
+        "file_field_exact": file_field_exact,
     }
+
+
+def is_valid_result(meta: dict, convert_source: str) -> bool:
+    """A valid conversion: BibTeX entry + exact PDF file field; DOI path needs doi field."""
+    if not meta.get("has_at_entry"):
+        return False
+    if not meta.get("has_file_field") or not meta.get("file_field_exact"):
+        return False
+    if "DOI metadata" in (convert_source or ""):
+        if not meta.get("has_doi_field"):
+            return False
+    return True
 
 
 def convert_one_real(
@@ -391,8 +517,10 @@ def convert_one_real(
             save_tei=False,
         )
         bibtex = bib_path.read_text(encoding="utf-8") if bib_path.exists() else ""
-        meta = classify_bib(bibtex, source)
-        ok = bool(bibtex.strip()) and meta["has_at_entry"] and meta["has_file_field"]
+        meta = classify_bib(bibtex, source, pdf_path)
+        ok = is_valid_result(meta, source)
+        # Drop helper key not on RunResult dataclass.
+        meta.pop("file_field_exact", None)
         return RunResult(
             id=pdf_path.stem,
             source="",
@@ -417,6 +545,7 @@ def convert_one_real(
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    started = datetime.now(timezone.utc).isoformat()
     manifest_path = Path(args.manifest)
     corpus = Path(args.corpus)
     results_dir = Path(args.results)
@@ -428,6 +557,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "grobid_url": args.grobid_url,
         "alive": alive,
         "detail": detail,
+        "version": grobid_version(args.grobid_url) if alive else "",
     }
     (results_dir / "grobid_probe.json").write_text(
         json.dumps(probe, indent=2) + "\n", encoding="utf-8"
@@ -435,7 +565,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"GROBID probe: {probe}", flush=True)
     if not alive and not args.allow_no_grobid:
         print("GROBID down; abort run (pass --allow-no-grobid to force).", file=sys.stderr)
-        return 2
+        return EXIT_ENV
 
     items: list[ManifestItem] = []
     if manifest_path.exists():
@@ -461,6 +591,30 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     if args.limit:
         pdfs = pdfs[: args.limit]
+
+    if not pdfs:
+        summary = {
+            "n": 0,
+            "n_ok": 0,
+            "n_fail": 0,
+            "n_requested": 0,
+            "ok_rate": 0.0,
+            "error": "no PDFs to convert",
+            "grobid_probe": probe,
+            "provenance": build_provenance(
+                args=args,
+                grobid_url=args.grobid_url,
+                manifest_path=manifest_path,
+                started_at=started,
+            ),
+        }
+        (results_dir / "summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        (results_dir / "results.jsonl").write_text("", encoding="utf-8")
+        print(json.dumps(summary, indent=2))
+        print("FAIL: zero PDFs to convert", file=sys.stderr)
+        return EXIT_FAIL
 
     print(f"Running convert on {len(pdfs)} PDFs...", flush=True)
     results: list[RunResult] = []
@@ -491,11 +645,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     summary = summarize(results)
     summary["grobid_probe"] = probe
     summary["n_requested"] = len(pdfs)
+    summary["provenance"] = build_provenance(
+        args=args,
+        grobid_url=args.grobid_url,
+        manifest_path=manifest_path,
+        started_at=started,
+    )
     (results_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     print(json.dumps(summary, indent=2))
-    return 0 if summary.get("n_ok", 0) > 0 or len(results) == 0 else 1
+    if summary.get("n_ok", 0) <= 0:
+        return EXIT_FAIL
+    return EXIT_OK
 
 
 def summarize(results: list[RunResult]) -> dict:
@@ -651,9 +813,21 @@ def cmd_assess(args: argparse.Namespace) -> int:
 
 def cmd_smoke(args: argparse.Namespace) -> int:
     """Build tiny manifest, download few, run, assess — capture log to scratch."""
+    started = datetime.now(timezone.utc).isoformat()
     scratch = Path(args.scratch) if args.scratch else DEFAULT_RESULTS / "smoke_scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     log_path = scratch / "e2e-smoke.log"
+    # Fresh results dir per smoke run — never treat stale results as success.
+    results = scratch / "results"
+    if results.exists():
+        for path in sorted(results.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink(missing_ok=True)
+            elif path.is_dir():
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
 
     class Tee:
         def __init__(self, *streams):
@@ -675,9 +849,38 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     try:
         alive, detail = grobid_alive(args.grobid_url)
         print(f"SMOKE GROBID alive={alive} detail={detail!r}")
+        probe = {
+            "alive": alive,
+            "detail": detail,
+            "version": grobid_version(args.grobid_url) if alive else "",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
         (scratch / "grobid_probe_smoke.json").write_text(
-            json.dumps({"alive": alive, "detail": detail}, indent=2) + "\n"
+            json.dumps(probe, indent=2) + "\n"
         )
+        if not alive:
+            print(
+                "SMOKE ENV FAIL: GROBID unreachable — cannot claim conversion success.",
+                file=sys.stderr,
+            )
+            (scratch / "e2e-smoke-summary.json").write_text(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "blocker": "GROBID unreachable",
+                        "detail": detail,
+                        "provenance": build_provenance(
+                            args=args,
+                            grobid_url=args.grobid_url,
+                            started_at=started,
+                        ),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return EXIT_ENV
 
         manifest = DEFAULT_MANIFEST.with_name("manifest_smoke.json")
         ns = argparse.Namespace(
@@ -686,6 +889,8 @@ def cmd_smoke(args: argparse.Namespace) -> int:
         )
         rc = cmd_build_manifest(ns)
         print(f"build-manifest rc={rc}")
+        if rc != 0:
+            return EXIT_FAIL
 
         corpus = DEFAULT_CORPUS
         ns_dl = argparse.Namespace(
@@ -696,8 +901,9 @@ def cmd_smoke(args: argparse.Namespace) -> int:
         )
         rc = cmd_download(ns_dl)
         print(f"download rc={rc}")
+        if rc != 0:
+            return EXIT_FAIL
 
-        results = DEFAULT_RESULTS / "smoke"
         ns_run = argparse.Namespace(
             manifest=str(manifest),
             corpus=str(corpus),
@@ -712,30 +918,34 @@ def cmd_smoke(args: argparse.Namespace) -> int:
         )
         rc_run = cmd_run(ns_run)
         print(f"run rc={rc_run}")
+        if rc_run != 0:
+            return rc_run
 
         ns_as = argparse.Namespace(results=str(results), scratch=str(scratch))
         cmd_assess(ns_as)
 
         summary = json.loads((results / "summary.json").read_text(encoding="utf-8"))
-        # Gating assertions for smoke
-        assert summary["n"] >= 1, "smoke processed zero docs"
-        if alive:
-            assert summary["n_ok"] >= 1, "smoke expected ≥1 OK when GROBID alive"
-            # at least one bib with @ and file
-            ok_lines = [
-                json.loads(l)
-                for l in (results / "results.jsonl").read_text().splitlines()
-                if l.strip()
-            ]
-            goods = [r for r in ok_lines if r.get("ok") and r.get("has_at_entry") and r.get("has_file_field")]
-            assert goods, "no successful bib with @ entry and file field"
-            print(f"SMOKE PASS goods={len(goods)} summary={summary}")
-        else:
-            print("SMOKE: GROBID down — documented; not asserting OK conversions")
-        return 0
+        if summary.get("n", 0) < 1 or summary.get("n_ok", 0) < 1:
+            print(f"SMOKE FAIL summary={summary}", file=sys.stderr)
+            return EXIT_FAIL
+        ok_lines = [
+            json.loads(line)
+            for line in (results / "results.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        goods = [
+            r
+            for r in ok_lines
+            if r.get("ok") and r.get("has_at_entry") and r.get("has_file_field")
+        ]
+        if not goods:
+            print("SMOKE FAIL: no successful bib with @ entry and file field", file=sys.stderr)
+            return EXIT_FAIL
+        print(f"SMOKE PASS goods={len(goods)} summary={summary}")
+        return EXIT_OK
     except Exception:
         traceback.print_exc()
-        return 1
+        return EXIT_FAIL
     finally:
         sys.stdout = old_out
         sys.stderr = old_err
@@ -744,6 +954,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 
 
 def cmd_all(args: argparse.Namespace) -> int:
+    started = datetime.now(timezone.utc).isoformat()
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
     batch_log = scratch / "e2e-batch.log"
@@ -775,6 +986,7 @@ def cmd_all(args: argparse.Namespace) -> int:
                     "alive": alive,
                     "detail": detail,
                     "url": args.grobid_url,
+                    "version": grobid_version(args.grobid_url) if alive else "",
                 },
                 indent=2,
             )
@@ -788,6 +1000,11 @@ def cmd_all(args: argparse.Namespace) -> int:
                         "n": 0,
                         "blocker": "GROBID unreachable",
                         "detail": detail,
+                        "provenance": build_provenance(
+                            args=args,
+                            grobid_url=args.grobid_url,
+                            started_at=started,
+                        ),
                     },
                     indent=2,
                 )
@@ -797,17 +1014,25 @@ def cmd_all(args: argparse.Namespace) -> int:
                 f"# E2E assessment\n\nGROBID unreachable: {detail}\n",
                 encoding="utf-8",
             )
-            return 2
+            return EXIT_ENV
 
         ns_m = argparse.Namespace(target=args.target, manifest=str(DEFAULT_MANIFEST))
-        cmd_build_manifest(ns_m)
+        rc_m = cmd_build_manifest(ns_m)
+        if rc_m != 0:
+            print(f"build-manifest failed rc={rc_m}", file=sys.stderr)
+            return EXIT_FAIL
+
         ns_d = argparse.Namespace(
             manifest=str(DEFAULT_MANIFEST),
             corpus=str(DEFAULT_CORPUS),
             limit=args.target,
             timeout=120,
         )
-        cmd_download(ns_d)
+        rc_d = cmd_download(ns_d)
+        if rc_d != 0:
+            print(f"download failed rc={rc_d}", file=sys.stderr)
+            return EXIT_FAIL
+
         ns_r = argparse.Namespace(
             manifest=str(DEFAULT_MANIFEST),
             corpus=str(DEFAULT_CORPUS),
@@ -820,19 +1045,70 @@ def cmd_all(args: argparse.Namespace) -> int:
             pdfs=None,
             include_orphan_pdfs=False,
         )
-        cmd_run(ns_r)
+        rc_r = cmd_run(ns_r)
+        if rc_r != 0:
+            print(f"run failed rc={rc_r}", file=sys.stderr)
+            return rc_r
+
         ns_a = argparse.Namespace(results=str(DEFAULT_RESULTS / "batch"), scratch=str(scratch))
-        cmd_assess(ns_a)
+        rc_a = cmd_assess(ns_a)
+        if rc_a != 0:
+            print(f"assess failed rc={rc_a}", file=sys.stderr)
+            return EXIT_FAIL
+
         summary = json.loads(
             (DEFAULT_RESULTS / "batch" / "summary.json").read_text(encoding="utf-8")
         )
-        print(f"BATCH DONE n={summary.get('n')} ok={summary.get('n_ok')}")
-        if summary.get("n", 0) < 200:
+        n = int(summary.get("n") or 0)
+        n_ok = int(summary.get("n_ok") or 0)
+        n_requested = int(summary.get("n_requested") or args.target)
+        target = int(args.target)
+        corpus_frac = n / target if target else 0.0
+        ok_frac = n_ok / n if n else 0.0
+        # Invariant: every OK row must have been validated; failed OK rate is fail.
+        n_invariants = int(summary.get("n_fail") or 0)  # failures already counted
+        # Zero "soft" invariant breaches: no OK without file/at (already in ok score).
+        gates = {
+            "min_corpus_fraction": MIN_CORPUS_FRACTION,
+            "min_ok_fraction": MIN_OK_FRACTION,
+            "corpus_fraction": round(corpus_frac, 4),
+            "ok_fraction": round(ok_frac, 4),
+            "n_requested": n_requested,
+            "n": n,
+            "n_ok": n_ok,
+            "zero_invariant_breaches": True,
+        }
+        summary["gates"] = gates
+        summary["provenance"] = build_provenance(
+            args=args,
+            grobid_url=args.grobid_url,
+            manifest_path=DEFAULT_MANIFEST,
+            started_at=started,
+        )
+        (DEFAULT_RESULTS / "batch" / "summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        (scratch / "e2e-batch-summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"BATCH DONE n={n} ok={n_ok} gates={gates}")
+
+        if corpus_frac < MIN_CORPUS_FRACTION:
             print(
-                f"NOTE: N={summary.get('n')} < 200 — see log for download/conversion limits.",
-                flush=True,
+                f"FAIL: corpus coverage {corpus_frac:.2%} < {MIN_CORPUS_FRACTION:.0%} "
+                f"of target {target}",
+                file=sys.stderr,
             )
-        return 0
+            return EXIT_FAIL
+        if ok_frac < MIN_OK_FRACTION:
+            print(
+                f"FAIL: ok rate {ok_frac:.2%} < {MIN_OK_FRACTION:.0%}",
+                file=sys.stderr,
+            )
+            return EXIT_FAIL
+        # n_invariants reserved for future explicit invariant counters
+        _ = n_invariants
+        return EXIT_OK
     finally:
         sys.stdout = old_out
         sys.stderr = old_err

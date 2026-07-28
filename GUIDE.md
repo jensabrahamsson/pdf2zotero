@@ -10,8 +10,8 @@ This GUIDE explains **why** the system is built this way and how the pieces fit 
 ### Short reminder: usage
 
 ```bash
-# Session: GROBID
-docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
+# Session: GROBID (pinned official image)
+docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 
 # Convert (CLI)
 python3 pdf2zotero.py paper.pdf          # → paper.bib (+ file path to PDF)
@@ -125,10 +125,12 @@ Reports are detected from title/filename cues such as *report*, *rapport*, *work
 flowchart TD
   S[Start] --> R[Read scientific PDF]
   R --> G["GROBID /api/processHeaderDocument"]
-  G --> P[Parse TEI XML]
+  G --> P[Parse TEI XML + PDF Info + filename]
   P --> D{DOI available?}
   D -->|yes| B1[BibTeX from doi.org]
-  D -->|no| B2[Build BibTeX from XML / PDF Info / Crossref]
+  D -->|no| XR[Crossref title/author search]
+  XR -->|DOI found| B1
+  XR -->|no DOI| B2[Local @article / @book / @techreport]
   B1 --> F[Attach local PDF file field]
   B2 --> F
   F --> SAVE[Save article.bib]
@@ -145,13 +147,18 @@ flowchart TD
     G2[title / authors / DOI / journal]
   end
   GROBID --> GROBID_box
-  GROBID_box --> XR
-  subgraph XR_box [DOI / Crossref]
-    X1[official metadata]
-    X2[BibTeX / stable citations]
+  GROBID_box --> CR
+  subgraph CR_box [Crossref REST API]
+    C1[title/author → DOI]
   end
-  XR --> XR_box
-  XR_box --> ZOT
+  CR --> CR_box
+  CR_box --> DOIORG
+  GROBID_box --> DOIORG
+  subgraph DOI_box [doi.org]
+    X1[authoritative BibTeX]
+  end
+  DOIORG --> DOI_box
+  DOI_box --> ZOT
   subgraph ZOT_box [Zotero]
     Z1["File → Import"]
     Z2[item + PDF attachment]
@@ -191,11 +198,11 @@ The architecture assumes these are available at runtime.
 
 | Layer | Prerequisite | Failure mode if missing |
 |-------|----------------|-------------------------|
-| Runtime | Python **3.9+** (recommend **3.11/3.12**; shebang `python3`) | Script does not start |
+| Runtime | Python **3.9+** (recommend **3.11–3.14**; shebang `python3`) | Script does not start |
 | Executable | `chmod +x pdf2zotero.py` (optional `~/bin/pdf2zotero` symlink) | `Permission denied` / `command not found` |
 | PDF understanding | GROBID HTTP API | Hard error: cannot process PDF |
 | Hosting GROBID | Docker (or other GROBID install) | Same as above if nothing listens on the URL |
-| Authoritative metadata | HTTPS to doi.org | Warning + fallback to GROBID BibTeX |
+| Authoritative metadata | HTTPS to **doi.org** (BibTeX) and **Crossref** (DOI search) | Warning + fallback to local BibTeX |
 | Library UI | Zotero (optional for generation) | You still get `.bib`; no in-app library |
 
 End-user paths:
@@ -203,16 +210,17 @@ End-user paths:
 - CLI: `pdf2zotero artikel.pdf` → `artikel.bib` → Zotero **File → Import…**  
 - Web: `python3 webui.py` → drop PDF → `~/Downloads/pdf2zotero/*.bib` → Zotero **File → Import…**
 
-The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and optionally to doi.org.
+The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and optionally to doi.org / Crossref.
 
 ## Implementation notes
 
 - **GROBID endpoint:** `POST /api/processHeaderDocument` (header only; enough for DOI and core fields, faster than full-text processing).  
+- **Crossref search:** `GET https://api.crossref.org/v1/works` when GROBID yields no DOI (title/author).  
 - **DOI BibTeX:** HTTP GET to `https://doi.org/{doi}` with `Accept: application/x-bibtex`.  
 - **PDF attachment:** JabRef/Zotero-style field  
   `file = {:/absolute/path/to/paper.pdf:application/pdf}`  
   always added (including when DOI metadata is used).  
-- **Offline / privacy:** `--no-doi-lookup` skips doi.org/Crossref and uses local metadata only.  
+- **Offline / privacy:** `--no-doi-lookup` skips **doi.org and Crossref only**. It does **not** stop a configured remote GROBID URL from receiving the PDF.  
 - **Debugging:** `--save-tei` writes GROBID’s TEI XML next to the `.bib` file (CLI).  
 - **Resources:** Local GROBID is the heavy dependency (container image + RAM); the Python tools themselves are trivial.
 

@@ -57,7 +57,7 @@ pdf2zotero **never writes into Zotero by itself**. It prepares files; **you** im
 
 | # | Software | Quick check |
 |---|----------|-------------|
-| 1 | Python 3.9+ | `python3 --version` |
+| 1 | Python 3.9+ (recommend 3.11–3.14) | `python3 --version` |
 | 2 | Docker Desktop **or** Colima + `docker` CLI | `docker info` |
 | 3 | GROBID on port 8070 | `curl -s http://localhost:8070/api/isalive` |
 | 4 | This repo | `ls pdf2zotero.py webui.py` |
@@ -314,7 +314,7 @@ flowchart TD
 
 - **Articles** often get a DOI from GROBID.  
 - **Books / reports** often need PDF Info + Crossref.  
-- Offline: `--no-doi-lookup` or the web UI checkbox (weaker metadata, still can import).
+- Offline: `--no-doi-lookup` or the web UI checkbox skips doi.org/Crossref only (not remote GROBID).
 
 More detail: [GUIDE.md](GUIDE.md).
 
@@ -392,7 +392,7 @@ Uses GROBID + PDF Info only. Import into Zotero the same way; fix metadata in Zo
 
 ```bash
 # 1) Once per session: GROBID
-docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
+docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 
 # 2) Convert (pick one)
 python3 pdf2zotero.py paper.pdf

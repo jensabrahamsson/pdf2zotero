@@ -55,6 +55,9 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 pdf2zotero.py      # CLI + conversion library
 webui.py           # local drag-and-drop HTTP UI (stdlib)
 webui_static/      # index.html, styles.css, app.js
+tests/             # stdlib unittest (pdf2zotero + webui)
+e2e/               # live OA harness + harness unit tests
+.github/workflows/ # CI (py_compile + unittest)
 PREREQUISITES.md   # Python, Docker/Colima, GROBID, Zotero install
 GETTING_STARTED.md # convert + how material enters Zotero
 README.md          # overview + flag reference
@@ -105,11 +108,13 @@ do not reimplement metadata logic in JS. Do not add Flask/FastAPI/React unless t
 
 Before finishing a change:
 
-1. `python3 -m py_compile pdf2zotero.py`  
-2. Smoke-test pure functions with small TEI fixtures when parse/date/DOI/file logic changes.  
-3. Confirm DOI path still runs `attach_file_to_bibtex`.  
-4. Confirm published-date preference still beats unrelated `@when` on other `<date>` nodes (`imprint_date`).  
-5. Update docs if user-facing behaviour changed.
+1. `python3 -m py_compile pdf2zotero.py webui.py e2e/harness.py`  
+2. `python3 -m unittest discover -s tests -v` and `python3 -m unittest e2e.test_harness_unit -v`  
+3. Smoke-test pure functions with small TEI fixtures when parse/date/DOI/file logic changes.  
+4. Confirm DOI path still runs `attach_file_to_bibtex` (brace and quote forms).  
+5. Confirm published-date preference still beats unrelated `@when` on other `<date>` nodes (`imprint_date`).  
+6. Confirm output collision refuses to overwrite the source PDF; offline mode makes no doi.org/Crossref calls.  
+7. Update docs if user-facing behaviour changed (no default GROBID **0.8.x** recipes).
 
 ## Git / GitHub
 

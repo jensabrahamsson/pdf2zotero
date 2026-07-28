@@ -146,13 +146,13 @@ Works for **articles, books, and reports**. Local fallbacks use `@article`, `@bo
 
 | | Requirement |
 |--|-------------|
-| Python | 3.9+ (`python3 --version`) |
+| Python | 3.9+ floor (recommend 3.11–3.14; 3.9 is EOL) — `python3 --version` |
 | Containers | Docker Desktop **or** Colima + Docker CLI |
-| GROBID | e.g. `docker run … lfoppiano/grobid:0.8.1` then `curl -s http://localhost:8070/api/isalive` |
+| GROBID | e.g. `docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf` then `curl -s http://localhost:8070/api/isalive` |
 | Zotero | [Desktop app](https://www.zotero.org/download/) for library import |
-| Network | doi.org + Crossref (optional with `--no-doi-lookup`) |
+| Network | doi.org + Crossref (optional with `--no-doi-lookup`; does not block remote GROBID) |
 
-No `pip install` for pdf2zotero. ARM/Colima tips (CRF image, tini) are in PREREQUISITES.
+No runtime `pip install` for pdf2zotero (stdlib only). A `.venv` is fine for dev. See PREREQUISITES for install detail.
 
 ## Usage reference
 
@@ -193,17 +193,17 @@ python3 webui.py
 | `--grobid-url URL` | Default `http://localhost:8070` |
 | `--timeout SEC` | Default `120` |
 | `--output-dir PATH` | Default `~/Downloads/pdf2zotero` |
-| `--no-doi-lookup` | Default offline mode |
+| `--no-doi-lookup` | Default offline mode for the UI (form may override) |
 | `--no-browser` | Do not auto-open a tab |
 
-**Browser:** drop zone, offline checkbox, Download .bib, Copy, GROBID status.  
+**Browser:** drop zone, offline checkbox (initialized from `/api/health`), Download .bib, Copy, GROBID status.  
 **Output:** PDF + `.bib` under `--output-dir` so `file` paths stay valid.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | UI |
-| `/api/health` | GET | GROBID alive, settings |
-| `/api/convert` | POST | `file` (+ optional `no_doi_lookup`) |
+| `/` | GET | UI (self-only CSP; no third-party fonts) |
+| `/api/health` | GET | GROBID alive, settings including `no_doi_lookup` default |
+| `/api/convert` | POST | `file`; optional `no_doi_lookup` (`true`/`false`). **Missing field → server default** |
 
 ## Into Zotero (the actual goal)
 

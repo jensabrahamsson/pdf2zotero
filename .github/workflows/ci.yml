@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Compile
+        run: python -m py_compile pdf2zotero.py webui.py e2e/harness.py
+
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s tests -v
+          python -m unittest e2e.test_harness_unit -v
+
+      - name: Markdown fence check
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          errors = []
+          for path in Path(".").rglob("*.md"):
+              if ".venv" in path.parts or "node_modules" in path.parts:
+                  continue
+              text = path.read_text(encoding="utf-8")
+              # Odd number of ``` fences is a broken fence.
+              if text.count("```") % 2 != 0:
+                  errors.append(f"{path}: unbalanced ``` fences")
+              if "lfoppiano/grobid:0.8" in text and "not" not in text.lower():
+                  # Allow historical mentions only if marked non-default.
+                  if "not" not in text and "0.8.x" in text:
+                      pass
+                  elif "lfoppiano/grobid:0.8" in text and "not the documented default" not in text:
+                      # PREREQUISITES may mention old tags as non-default.
+                      if "not" not in text and "older" not in text.lower():
+                          errors.append(f"{path}: default GROBID 0.8.x recipe?")
+          # Soft check: no Google Fonts in UI (offline self-host policy).
+          html = Path("webui_static/index.html").read_text(encoding="utf-8")
+          if "fonts.googleapis.com" in html or "fonts.gstatic.com" in html:
+              errors.append("webui_static/index.html still loads Google Fonts")
+          if errors:
+              print("\n".join(errors))
+              raise SystemExit(1)
+          print("markdown/UI checks OK")
+          PY
+
+  live-smoke:
+    name: Live GROBID smoke (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Start GROBID 0.9.0-crf
+        run: |
+          docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8070/api/isalive | grep -qi true; then
+              echo "GROBID up"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker logs grobid || true
+          exit 1
+
+      - name: E2E smoke
+        run: python e2e/harness.py smoke --scratch /tmp/pdf2zotero-smoke

@@ -18,8 +18,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import socket
 import sys
+import tempfile
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -30,10 +35,13 @@ from pathlib import Path
 
 
 TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
-DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
-USER_AGENT = "pdf2zotero/1.2 (https://github.com/jensabrahamsson/pdf2zotero; mailto:noreply@example.com)"
+# DOI suffix may include punctuation; strip only unbalanced/trailing noise in clean_doi.
+DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
+USER_AGENT = "pdf2zotero/1.2 (https://github.com/jensabrahamsson/pdf2zotero)"
+CROSSREF_WORKS_URL = "https://api.crossref.org/v1/works"
 # Crossref match: reject weak hits (reviews/book chapters that only mention the title).
 CROSSREF_MIN_SCORE = 20.0
+RETRYABLE_HTTP = frozenset({429, 502, 503, 504})
 
 REPORT_HINT_RE = re.compile(
     r"\b("
@@ -152,9 +160,27 @@ def call_grobid(pdf_path: Path, grobid_url: str, timeout: int) -> bytes:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read()
-    except urllib.error.URLError as exc:
+    except urllib.error.HTTPError as exc:
         raise RuntimeError(
-            f"Could not contact GROBID at {endpoint}: {exc}\n"
+            f"GROBID HTTP {exc.code} at {endpoint}: {exc.reason}\n"
+            "Check that Docker/GROBID is running and that the port is correct."
+        ) from exc
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"GROBID timed out after {timeout}s at {endpoint}.\n"
+            "Increase --timeout or check that GROBID is not overloaded."
+        ) from exc
+    except urllib.error.URLError as exc:
+        reason = exc.reason
+        if isinstance(reason, (TimeoutError, socket.timeout)) or (
+            reason is not None and "timed out" in str(reason).lower()
+        ):
+            raise RuntimeError(
+                f"GROBID timed out after {timeout}s at {endpoint}.\n"
+                "Increase --timeout or check that GROBID is not overloaded."
+            ) from exc
+        raise RuntimeError(
+            f"Could not connect to GROBID at {endpoint}: {exc}\n"
             "Check that Docker/GROBID is running and that the port is correct."
         ) from exc
 
@@ -322,10 +348,25 @@ def imprint_date(root: ET.Element) -> str:
 
 
 def clean_doi(value: str) -> str:
+    """Normalize a DOI string: strip URI prefixes and only trailing/unbalanced punctuation."""
     value = value.strip()
     value = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", "", value, flags=re.I)
     match = DOI_RE.search(value)
-    return match.group(0).rstrip(".,;:)]}") if match else ""
+    if not match:
+        return ""
+    doi = match.group(0)
+    # Drop simple trailing sentence punctuation first.
+    while doi and doi[-1] in ".,;:'\"":
+        doi = doi[:-1]
+    # Drop unbalanced closing brackets only (keep balanced suffix punctuation).
+    pairs = {")": "(", "]": "[", "}": "{"}
+    while doi and doi[-1] in pairs:
+        closer = doi[-1]
+        opener = pairs[closer]
+        if doi.count(opener) >= doi.count(closer):
+            break
+        doi = doi[:-1]
+    return doi
 
 
 def decode_pdf_literal(raw: bytes) -> str:
@@ -549,9 +590,16 @@ def merge_metadata(base: Metadata, *extras: Metadata) -> Metadata:
 
 
 def normalize_title(value: str) -> str:
-    value = value.lower()
-    value = re.sub(r"[^a-z0-9\s]", " ", value)
-    return " ".join(value.split())
+    """Casefold + NFKD title tokens; keep non-Latin letters for Crossref matching."""
+    value = unicodedata.normalize("NFKD", value or "")
+    value = value.casefold()
+    chars: list[str] = []
+    for ch in value:
+        if ch.isalnum() or ch.isspace():
+            chars.append(ch)
+        else:
+            chars.append(" ")
+    return " ".join("".join(chars).split())
 
 
 def title_similarity(a: str, b: str) -> float:
@@ -571,12 +619,21 @@ def title_similarity(a: str, b: str) -> float:
     return max(jaccard, coverage * 0.9)
 
 
+def person_surname(name: str) -> str:
+    """Extract a comparable surname from 'Given Surname' or 'Surname, Given'."""
+    name = (name or "").strip()
+    if not name:
+        return ""
+    if "," in name:
+        family = name.split(",", 1)[0]
+    else:
+        parts = name.split()
+        family = parts[-1] if parts else ""
+    return re.sub(r"\W+", "", family, flags=re.UNICODE).casefold()
+
+
 def author_surnames(names: list[str]) -> set[str]:
-    return {
-        re.sub(r"\W+", "", part.split()[-1]).lower()
-        for part in names
-        if part and part.split()
-    }
+    return {s for part in names if (s := person_surname(part))}
 
 
 def crossref_item_surnames(item: dict) -> set[str]:
@@ -588,14 +645,67 @@ def crossref_item_surnames(item: dict) -> set[str]:
     return surnames
 
 
+def _http_read_with_retry(
+    request: urllib.request.Request,
+    timeout: int,
+    *,
+    max_attempts: int = 4,
+) -> bytes:
+    """GET/POST with limited retries on 429/502/503/504 within the timeout budget."""
+    deadline = time.monotonic() + max(timeout, 1)
+    last_exc: BaseException | None = None
+    for attempt in range(max_attempts):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        attempt_timeout = max(1, min(timeout, int(remaining)))
+        try:
+            with urllib.request.urlopen(request, timeout=attempt_timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            if exc.code not in RETRYABLE_HTTP or attempt >= max_attempts - 1:
+                raise
+            # Honour Retry-After when present (seconds only).
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            try:
+                sleep_s = float(retry_after) if retry_after else min(2**attempt, 8)
+            except ValueError:
+                sleep_s = min(2**attempt, 8)
+            sleep_s = min(sleep_s, max(0.0, deadline - time.monotonic() - 0.5))
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+        except (TimeoutError, socket.timeout) as exc:
+            last_exc = exc
+            if attempt >= max_attempts - 1:
+                raise
+            sleep_s = min(2**attempt, 4, max(0.0, deadline - time.monotonic() - 0.5))
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+        except urllib.error.URLError as exc:
+            last_exc = exc
+            reason = exc.reason
+            retryable = isinstance(reason, (TimeoutError, socket.timeout)) or (
+                reason is not None and "timed out" in str(reason).lower()
+            )
+            if not retryable or attempt >= max_attempts - 1:
+                raise
+            sleep_s = min(2**attempt, 4, max(0.0, deadline - time.monotonic() - 0.5))
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+    if last_exc:
+        raise last_exc
+    raise TimeoutError("HTTP request exhausted timeout budget")
+
+
 def _crossref_query_items(params: dict, timeout: int) -> list[dict]:
-    url = "https://api.crossref.org/works?" + urllib.parse.urlencode(params)
+    url = CROSSREF_WORKS_URL + "?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(
         url,
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    raw = _http_read_with_retry(request, timeout)
+    payload = json.loads(raw.decode("utf-8", errors="replace"))
     return payload.get("message", {}).get("items") or []
 
 
@@ -705,6 +815,14 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
     return best_doi, best_type
 
 
+def looks_like_bibtex(text: str) -> bool:
+    """True if text looks like at least one BibTeX entry."""
+    stripped = (text or "").strip()
+    if not stripped.startswith("@"):
+        return False
+    return bool(re.search(r"@\w+\s*\{[^,]+,", stripped)) and "}" in stripped
+
+
 def fetch_bibtex_for_doi(doi: str, timeout: int) -> str:
     url = "https://doi.org/" + urllib.parse.quote(doi, safe="/()")
     request = urllib.request.Request(
@@ -715,13 +833,15 @@ def fetch_bibtex_for_doi(doi: str, timeout: int) -> str:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            text = response.read().decode("utf-8", errors="replace").strip()
-    except urllib.error.URLError as exc:
+        raw = _http_read_with_retry(request, timeout)
+        text = raw.decode("utf-8", errors="replace").strip()
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"DOI lookup failed for {doi}: HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise RuntimeError(f"DOI lookup failed for {doi}: {exc}") from exc
 
-    if not text.startswith("@"):
-        raise RuntimeError(f"DOI resolver did not return BibTeX for {doi}.")
+    if not looks_like_bibtex(text):
+        raise RuntimeError(f"DOI resolver did not return valid BibTeX for {doi}.")
     return text + "\n"
 
 
@@ -745,12 +865,24 @@ def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:
     """Ensure BibTeX entry links the local PDF (insert or replace file field)."""
     file_value = bib_escape(zotero_file_field(pdf_path))
     if re.search(r"(?im)^\s*file\s*=", bibtex):
-        return re.sub(
-            r"(?is)(file\s*=\s*\{).*?(\})",
+        # Support both brace and quoted forms used by doi.org / exporters.
+        replaced, n = re.subn(
+            r'(?is)(file\s*=\s*\{).*?(\})',
             rf"\1{file_value}\2",
             bibtex,
             count=1,
         )
+        if n:
+            return replaced
+        replaced, n = re.subn(
+            r'(?is)(file\s*=\s*").*?(")',
+            rf"\1{file_value}\2",
+            bibtex,
+            count=1,
+        )
+        if n:
+            return replaced
+        # Field present but unrecognized shape — fall through to insert.
 
     text = bibtex.rstrip()
     if not text.endswith("}"):
@@ -762,10 +894,47 @@ def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:
     return head + f"\n  file = {{{file_value}}}\n}}\n"
 
 
+def ensure_safe_output_path(pdf_path: Path, output_path: Path) -> None:
+    """Refuse to write BibTeX over the source PDF (or any same resolved path)."""
+    try:
+        if pdf_path.resolve() == output_path.resolve():
+            raise RuntimeError(
+                f"Refusing to overwrite input PDF with output path: {output_path}"
+            )
+    except OSError:
+        # If resolve fails, still compare absolute forms.
+        if Path(os.path.abspath(pdf_path)) == Path(os.path.abspath(output_path)):
+            raise RuntimeError(
+                f"Refusing to overwrite input PDF with output path: {output_path}"
+            )
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write UTF-8 text via a same-directory temp file and os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
 def citation_key(metadata: Metadata, pdf_path: Path) -> str:
     surname = "unknown"
     if metadata.authors:
-        surname = re.sub(r"\W+", "", metadata.authors[0].split()[-1]).lower() or "unknown"
+        surname = person_surname(metadata.authors[0]) or "unknown"
     year = metadata.year or "nd"
     title_word = next(
         (re.sub(r"\W+", "", word).lower() for word in metadata.title.split() if len(word) > 3),
@@ -833,9 +1002,13 @@ def convert_one(
     no_doi_lookup: bool,
     save_tei: bool,
 ) -> str:
+    ensure_safe_output_path(pdf_path, output_path)
+
     xml_data = call_grobid(pdf_path, grobid_url, timeout)
     if save_tei:
-        output_path.with_suffix(".tei.xml").write_bytes(xml_data)
+        tei_path = output_path.with_suffix(".tei.xml")
+        ensure_safe_output_path(pdf_path, tei_path)
+        tei_path.write_bytes(xml_data)
 
     metadata = parse_grobid_tei(xml_data)
     pdf_meta = extract_pdf_info(pdf_path)
@@ -872,8 +1045,7 @@ def convert_one(
     else:
         bibtex = fallback_bibtex(metadata, pdf_path)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(bibtex, encoding="utf-8")
+    write_text_atomic(output_path, bibtex)
     return source
 
 
@@ -929,6 +1101,7 @@ def main() -> int:
 
         output_path = args.output or pdf_path.with_suffix(".bib")
         try:
+            ensure_safe_output_path(pdf_path, output_path)
             source = convert_one(
                 pdf_path=pdf_path,
                 output_path=output_path,

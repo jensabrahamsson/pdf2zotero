@@ -13,11 +13,11 @@ After this, continue with **[GETTING_STARTED.md](GETTING_STARTED.md)** (convert 
 | # | Prerequisite | Required? | Role | Links |
 |---|--------------|-----------|------|--------|
 | 0 | **[Homebrew](https://brew.sh/)** (macOS recommended) | Strongly recommended on Mac | Installs Python, Docker/Colima, Git, … | [brew.sh](https://brew.sh/) · [docs](https://docs.brew.sh/) |
-| 1 | **Python 3.9+** | Yes | Runs pdf2zotero and the web UI | [python.org](https://www.python.org/downloads/) · [Homebrew `python@3.12`](https://formulae.brew.sh/formula/python@3.12) |
+| 1 | **Python 3.9+** | Yes | Runs pdf2zotero and the web UI | [python.org](https://www.python.org/downloads/) · [status of Python versions](https://devguide.python.org/versions/) · [Homebrew `python@3.12`](https://formulae.brew.sh/formula/python@3.12) |
 | 2 | **Container runtime** | Yes* | Runs GROBID | *or host GROBID another way |
 | 2a | **Docker Desktop** | One of 2a/2b | Common GUI on macOS | [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [Homebrew cask](https://formulae.brew.sh/cask/docker-desktop) |
 | 2b | **Colima + Docker CLI** | One of 2a/2b | Lighter alternative | [Colima](https://github.com/abiosoft/colima) · [Homebrew `colima`](https://formulae.brew.sh/formula/colima) · [Homebrew `docker`](https://formulae.brew.sh/formula/docker) |
-| 3 | **GROBID** | Yes | Reads scholarly PDFs (HTTP :8070) | [GROBID project](https://github.com/kermitt2/grobid) · [Docker Hub `lfoppiano/grobid`](https://hub.docker.com/r/lfoppiano/grobid) · [`grobid/grobid-crf`](https://hub.docker.com/r/grobid/grobid-crf) |
+| 3 | **GROBID** | Yes | Reads scholarly PDFs (HTTP :8070) | [GROBID project](https://github.com/kermitt2/grobid) · [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/) · [Docker Hub `grobid/grobid`](https://hub.docker.com/r/grobid/grobid) |
 | 4 | **Zotero desktop** | For the end goal | Your library | [Download](https://www.zotero.org/download/) · [Support](https://www.zotero.org/support) |
 | 5 | **Network (HTTPS)** | Usual case | Best metadata | [doi.org](https://www.doi.org/) · [Crossref API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) |
 
@@ -94,9 +94,9 @@ brew --version
 
 | | Version | Link |
 |--|---------|------|
-| Minimum | **3.9** | [What’s new in 3.9](https://docs.python.org/3/whatsnew/3.9.html) |
-| Recommended | **3.11** or **3.12** | [python.org downloads](https://www.python.org/downloads/) |
-| Homebrew formula | `python@3.12` | [formulae.brew.sh/formula/python@3.12](https://formulae.brew.sh/formula/python@3.12) |
+| Minimum (compat floor) | **3.9** (EOL — still supported here until a breaking bump) | [What’s new in 3.9](https://docs.python.org/3/whatsnew/3.9.html) · [version status](https://devguide.python.org/versions/) |
+| Recommended | **3.11–3.14** | [python.org downloads](https://www.python.org/downloads/) |
+| Homebrew formula | `python@3.12` (or newer) | [formulae.brew.sh/formula/python@3.12](https://formulae.brew.sh/formula/python@3.12) |
 
 ### Check
 
@@ -282,20 +282,30 @@ Service API (overview): [GROBID service](https://grobid.readthedocs.io/en/latest
 
 You do **not** install GROBID via pip for this project. You run a **container**.
 
-### 3.1 Standard image (try first)
+### 3.1 Official pinned images (preferred)
 
-Images:
+Follow [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/).  
+Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
 
-- [Docker Hub: lfoppiano/grobid](https://hub.docker.com/r/lfoppiano/grobid)  
-- Related: [grobid/grobid](https://hub.docker.com/r/grobid/grobid)  
+| Tag | When to use |
+|-----|-------------|
+| `grobid/grobid:0.9.0-crf` | Default / lighter (CRF models) |
+| `grobid/grobid:0.9.0-full` | Full deep-learning models (heavier) |
 
-Dedicated terminal (leave it open):
+Dedicated terminal (leave it open). `--init` and `core=0` match the upstream guide:
 
 ```bash
-docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
+docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 ```
 
-First pull is large. Prefer an **explicit tag** (e.g. `0.8.1`); `latest` is not always published.
+Full models:
+
+```bash
+docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-full
+```
+
+First pull is large. Prefer an **explicit tag**; `latest` is not always published.  
+(Older third-party tags such as `lfoppiano/grobid:0.8.x` may still work but are **not** the documented default.)
 
 ### 3.2 Check alive
 
@@ -311,19 +321,18 @@ Expect a body containing `true`.
 
 | Symptom | Likely cause | Try |
 |---------|--------------|-----|
-| `PR_SET_CHILD_SUBREAPER` / tini fatal | Default entrypoint under some VMs | Bypass entrypoint (below) |
-| TensorFlow / AVX, never alive | Full DL image under amd64 emulation | [CRF image](https://hub.docker.com/r/grobid/grobid-crf) (no TF) |
+| `PR_SET_CHILD_SUBREAPER` / tini fatal | Default entrypoint under some VMs | Ensure Docker/Colima is current; try `--init` as above |
+| TensorFlow / AVX, never alive | Full DL image under amd64 emulation | Prefer **`0.9.0-crf`** (lighter) |
 
-**CRF image + no tini** (often works on ARM + Colima):
+Named container example:
 
 ```bash
 docker rm -f grobid 2>/dev/null
 
-docker pull grobid/grobid-crf:0.8.0
+docker pull grobid/grobid:0.9.0-crf
 
-docker run -d --name grobid -p 8070:8070 \
-  --entrypoint ./grobid-service/bin/grobid-service \
-  grobid/grobid-crf:0.8.0
+docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 \
+  grobid/grobid:0.9.0-crf
 ```
 
 ```bash
@@ -405,7 +414,7 @@ cd pdf2zotero
 chmod +x pdf2zotero.py webui.py
 ```
 
-No virtualenv / no `pip install -r requirements.txt`.
+**No runtime pip dependencies** (stdlib only). A local `.venv` is fine for development and verification; you do not need `pip install -r requirements.txt` for the app itself.
 
 ---
 
@@ -434,7 +443,7 @@ brew install --cask zotero
 brew install git
 
 # Then GROBID (needs working docker):
-docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
+docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 ```
 
 Formula / cask index: [formulae.brew.sh](https://formulae.brew.sh/).
@@ -472,8 +481,8 @@ ls pdf2zotero.py webui.py
 | `docker: command not found` | Desktop cask **or** `brew install docker colima` | [docker-desktop](https://formulae.brew.sh/cask/docker-desktop) · [docker](https://formulae.brew.sh/formula/docker) |
 | Cannot connect to Docker daemon | Start Desktop / `colima start` + `docker context use colima` | [Colima](https://github.com/abiosoft/colima) · [Desktop](https://docs.docker.com/desktop/) |
 | `docker-credential-desktop` errors | Edit `~/.docker/config.json`, drop `credsStore: desktop` | [Docker config](https://docs.docker.com/reference/cli/docker/#configuration-files) |
-| `grobid:latest` not found | Use tag `0.8.1` (or other published tag) | [lfoppiano/grobid tags](https://hub.docker.com/r/lfoppiano/grobid/tags) |
-| tini / AVX / never alive | CRF image + entrypoint bypass (§3.3) | [grobid-crf](https://hub.docker.com/r/grobid/grobid-crf) |
+| `grobid:latest` not found | Use pinned tag `0.9.0-crf` or `0.9.0-full` | [grobid/grobid tags](https://hub.docker.com/r/grobid/grobid/tags) · [Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/) |
+| tini / AVX / never alive | Prefer CRF image; update Docker/Colima (§3.3) | [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/) |
 | Port 8070 busy | `docker ps` → `docker rm -f <id>` | [docker ps](https://docs.docker.com/reference/cli/docker/container/ls/) |
 | Zotero missing | Install desktop app | [download](https://www.zotero.org/download/) · [cask](https://formulae.brew.sh/cask/zotero) |
 
