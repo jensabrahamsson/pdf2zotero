@@ -223,6 +223,18 @@ class AttachFileTests(unittest.TestCase):
         self.assertNotIn(r"\textbackslash{}", escaped)
         self.assertIn("C:/Users/Ada/paper.pdf", escaped)
 
+    def test_format_zotero_file_field_mixed_separators(self):
+        field = pdf2zotero.format_zotero_file_field(r"C:\Users/Ada\paper.pdf")
+        self.assertEqual(field, ":C:/Users/Ada/paper.pdf:application/pdf")
+        self.assertNotIn("\\", field)
+
+    def test_format_zotero_file_field_empty(self):
+        """Empty input yields degenerate field; documents intentional non-validation."""
+        self.assertEqual(
+            pdf2zotero.format_zotero_file_field(""),
+            "::application/pdf",
+        )
+
     def test_format_zotero_file_field_posix_unchanged(self):
         field = pdf2zotero.format_zotero_file_field("/tmp/example.pdf")
         self.assertEqual(field, ":/tmp/example.pdf:application/pdf")
