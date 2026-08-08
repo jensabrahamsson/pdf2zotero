@@ -61,6 +61,26 @@ jobs:
           print("markdown/UI checks OK")
           PY
 
+  # Compile + unit tests only; no Docker/GROBID (optional Windows coverage).
+  test-windows:
+    name: Windows Python 3.12
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile
+        run: python -m py_compile pdf2zotero.py webui.py e2e/harness.py
+
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s tests -v
+          python -m unittest e2e.test_harness_unit -v
+
   live-smoke:
     name: Live GROBID smoke (manual)
     runs-on: ubuntu-latest
