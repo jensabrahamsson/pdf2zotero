@@ -868,9 +868,20 @@ def bib_escape(value: str) -> str:
     )
 
 
+def format_zotero_file_field(absolute_path: str) -> str:
+    """Build JabRef/Zotero file field from an absolute path string.
+
+    Normalizes backslashes to forward slashes so Windows paths never hit
+    bib_escape as ``\\`` → ``\\textbackslash{}``.
+    """
+    abs_posix = absolute_path.replace("\\", "/")
+    return f":{abs_posix}:application/pdf"
+
+
 def zotero_file_field(pdf_path: Path) -> str:
     """JabRef/Zotero file attachment value: :/abs/path:application/pdf"""
-    return f":{pdf_path.resolve()}:application/pdf"
+    # resolve() for absolute path; as_posix() so Windows \\ never hits bib_escape
+    return format_zotero_file_field(pdf_path.resolve().as_posix())
 
 
 def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:

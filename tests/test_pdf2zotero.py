@@ -189,6 +189,52 @@ class AttachFileTests(unittest.TestCase):
         self.assertIn("file = {", out)
         self.assertIn(pdf2zotero.zotero_file_field(pdf), out)
 
+    def test_zotero_file_field_no_backslashes(self):
+        """Resolved file field must use POSIX separators (no backslashes)."""
+        with tempfile.TemporaryDirectory() as td:
+            pdf = Path(td) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            field = pdf2zotero.zotero_file_field(pdf)
+            self.assertNotIn("\\", field)
+            self.assertTrue(field.startswith(":"))
+            self.assertTrue(field.endswith(":application/pdf"))
+            self.assertIn("/paper.pdf", field)
+
+    def test_attach_file_no_textbackslash_for_path(self):
+        """bib_escape must not rewrite path separators as \\textbackslash{}."""
+        with tempfile.TemporaryDirectory() as td:
+            pdf = Path(td) / "paper.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            bib = "@article{x,\n  title = {Hello}\n}\n"
+            out = pdf2zotero.attach_file_to_bibtex(bib, pdf)
+            self.assertNotIn(r"\textbackslash{}", out)
+            field = pdf2zotero.zotero_file_field(pdf)
+            self.assertIn(f"file = {{{pdf2zotero.bib_escape(field)}}}", out)
+            # Escaped field itself must still have no backslash escapes from separators
+            self.assertNotIn("\\", field)
+
+    def test_format_zotero_file_field_windows_drive(self):
+        """Synthetic Windows absolute paths become drive-letter POSIX form."""
+        field = pdf2zotero.format_zotero_file_field(r"C:\Users\Ada\paper.pdf")
+        self.assertEqual(field, ":C:/Users/Ada/paper.pdf:application/pdf")
+        self.assertNotIn("\\", field)
+        # After bib_escape, path separators must not become \\textbackslash{}
+        escaped = pdf2zotero.bib_escape(field)
+        self.assertNotIn(r"\textbackslash{}", escaped)
+        self.assertIn("C:/Users/Ada/paper.pdf", escaped)
+
+    def test_format_zotero_file_field_posix_unchanged(self):
+        field = pdf2zotero.format_zotero_file_field("/tmp/example.pdf")
+        self.assertEqual(field, ":/tmp/example.pdf:application/pdf")
+
+    def test_zotero_file_field_posix_shape(self):
+        """On POSIX hosts, zotero_file_field matches resolve().as_posix() shape."""
+        pdf = Path("/tmp/example.pdf")
+        field = pdf2zotero.zotero_file_field(pdf)
+        expected = f":{pdf.resolve().as_posix()}:application/pdf"
+        self.assertEqual(field, expected)
+        self.assertNotIn("\\", field)
+
 
 class ParseTeiTests(unittest.TestCase):
     def test_article_prefers_published_date(self):
