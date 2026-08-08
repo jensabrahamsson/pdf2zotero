@@ -28,9 +28,9 @@ When running or documenting the tool, assume and verify:
 
 | Need | How to check |
 |------|----------------|
-| Python ≥ 3.9 (recommend 3.11/3.12) | `python3 --version` — shebang uses `env python3` |
-| Script executable bit | `chmod +x pdf2zotero.py` when documenting install |
-| GROBID up | `curl -s http://localhost:8070/api/isalive` (or configured `--grobid-url`) |
+| Python ≥ 3.9 (recommend 3.11/3.12) | `python3 --version` — shebang uses `env python3` (Windows docs: `python` / `py -3`) |
+| Script executable bit | `chmod +x pdf2zotero.py` when documenting Unix install |
+| GROBID up | `curl -s http://localhost:8070/api/isalive` (or configured `--grobid-url`); Windows: `.\scripts\setup-grobid.ps1` + `curl.exe` |
 | Optional doi.org | Network; skip with `--no-doi-lookup` in offline tests |
 | No pip deps | Do not add `requirements.txt` for the main script unless the user asks |
 | GitHub repo name | **`pdf2zotero`** under `jensabrahamsson` — not `zotero` |
@@ -46,6 +46,7 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 - Always attach the local PDF with a Zotero-compatible `file` field:  
   `:{absolute_path}:application/pdf`  
   including after a successful DOI lookup.  
+  Paths in that field must use **POSIX separators** (`as_posix()` / `format_zotero_file_field`) so Windows backslashes are not destroyed by `bib_escape` (e.g. `:C:/Users/…/paper.pdf:application/pdf`).  
 - Keep the public CLI stable unless the change is intentional and documented in `README.md`.  
 - License is **MIT** — do not switch license without an explicit user request.
 
@@ -55,11 +56,11 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 pdf2zotero.py      # CLI + conversion library
 webui.py           # local drag-and-drop HTTP UI (stdlib)
 webui_static/      # index.html, styles.css, app.js
-scripts/           # setup-grobid.sh (Docker GROBID up/down/purge)
+scripts/           # setup-grobid.sh (macOS/Linux); setup-grobid.ps1 (Windows)
 tests/             # stdlib unittest (pdf2zotero + webui)
 e2e/               # live OA harness + harness unit tests
 .github/workflows/ # CI (py_compile + unittest)
-PREREQUISITES.md   # Python, Docker/Colima, GROBID, Zotero install
+PREREQUISITES.md   # Python, Docker/Colima, GROBID, Zotero install (+ Windows)
 GETTING_STARTED.md # convert + how material enters Zotero
 README.md          # overview + flag reference
 GUIDE.md           # architecture and design

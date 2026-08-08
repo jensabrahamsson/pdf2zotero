@@ -12,13 +12,20 @@ After this, continue with **[GETTING_STARTED.md](GETTING_STARTED.md)** (convert 
 | 0 | **[Homebrew](https://brew.sh/)** (macOS recommended) | Strongly recommended on Mac | Installs Python, Docker/Colima, Git, … | [brew.sh](https://brew.sh/) · [docs](https://docs.brew.sh/) |
 | 1 | **Python 3.9+** | Yes | Runs pdf2zotero and the web UI | [python.org](https://www.python.org/downloads/) · [status of Python versions](https://devguide.python.org/versions/) · [Homebrew `python@3.12`](https://formulae.brew.sh/formula/python@3.12) |
 | 2 | **Container runtime** | Yes* | Runs GROBID | *or host GROBID another way |
-| 2a | **Docker Desktop** | One of 2a/2b | Common GUI on macOS | [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [Homebrew cask](https://formulae.brew.sh/cask/docker-desktop) |
-| 2b | **Colima + Docker CLI** | One of 2a/2b | Lighter alternative | [Colima](https://github.com/abiosoft/colima) · [Homebrew `colima`](https://formulae.brew.sh/formula/colima) · [Homebrew `docker`](https://formulae.brew.sh/formula/docker) |
+| 2a | **Docker Desktop** | One of 2a/2b (required path on **Windows**) | Common GUI on macOS / Windows | [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [Homebrew cask](https://formulae.brew.sh/cask/docker-desktop) · [Windows install](https://docs.docker.com/desktop/setup/install/windows-install/) |
+| 2b | **Colima + Docker CLI** | One of 2a/2b (macOS/Linux) | Lighter alternative | [Colima](https://github.com/abiosoft/colima) · [Homebrew `colima`](https://formulae.brew.sh/formula/colima) · [Homebrew `docker`](https://formulae.brew.sh/formula/docker) |
 | 3 | **GROBID** | Yes | Reads scholarly PDFs (HTTP :8070) | [GROBID project](https://github.com/kermitt2/grobid) · [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/) · [Docker Hub `grobid/grobid`](https://hub.docker.com/r/grobid/grobid) |
 | 4 | **Zotero desktop** | For the end goal | Your library | [Download](https://www.zotero.org/download/) · [Support](https://www.zotero.org/support) |
 | 5 | **Network (HTTPS)** | Usual case | Best metadata | [doi.org](https://www.doi.org/) · [Crossref API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) |
 
 pdf2zotero itself needs **no [`pip`](https://pip.pypa.io/) install**. Only the [Python standard library](https://docs.python.org/3/library/).
+
+**Platform paths in this file:**
+
+| OS | Install path |
+|----|----------------|
+| **macOS / Linux** | Sections 0–6 below (Homebrew / Colima or Docker Desktop) — primary happy path |
+| **Windows** | [Windows install order](#windows-install-order) — Docker Desktop + PowerShell helper |
 
 ---
 
@@ -122,13 +129,16 @@ $(brew --prefix python@3.12)/bin/python3 --version
 
 - macOS/Windows/Linux installers: [python.org/downloads](https://www.python.org/downloads/)  
 - Linux (Debian/Ubuntu example): `sudo apt update && sudo apt install python3` (ensure ≥ 3.9)  
-- Docs: [Using Python on Unix](https://docs.python.org/3/using/unix.html)
+- Docs: [Using Python on Unix](https://docs.python.org/3/using/unix.html)  
+- **Windows:** see [Windows install order → Python](#w1-python-39-from-pythonorg) (`python` / `py -3`; `python3` may be missing)
 
 ### Done when
 
 ```bash
 python3 -c "import sys; assert sys.version_info >= (3, 9); print('OK', sys.version)"
 ```
+
+On Windows (PowerShell), use `python` or `py -3` instead of `python3` if needed.
 
 ---
 
@@ -283,6 +293,8 @@ You do **not** install GROBID via pip for this project. You run a **container**.
 
 From the repo root, with Docker Desktop **or** Colima available:
 
+**macOS / Linux** (`scripts/setup-grobid.sh`):
+
 ```bash
 chmod +x scripts/setup-grobid.sh   # once
 ./scripts/setup-grobid.sh up       # pull + start + wait until alive
@@ -294,6 +306,24 @@ chmod +x scripts/setup-grobid.sh   # once
 - Default image: `grobid/grobid:0.9.0-crf` (lighter).  
 - Full models: `./scripts/setup-grobid.sh up --full` → `grobid/grobid:0.9.0-full`.  
 - Starts Colima automatically if `docker info` fails and `colima` is installed.
+
+**Windows** (`scripts/setup-grobid.ps1`) — Docker Desktop must already be running (no Colima auto-start):
+
+```powershell
+.\scripts\setup-grobid.ps1 up
+.\scripts\setup-grobid.ps1 status
+.\scripts\setup-grobid.ps1 down
+.\scripts\setup-grobid.ps1 purge
+```
+
+If PowerShell blocks script execution:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-grobid.ps1 up
+```
+
+Or once per user: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.  
+Full Windows install order: [Windows install order](#windows-install-order).
 
 Follow [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/).  
 Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
@@ -311,6 +341,12 @@ Dedicated terminal (leave it open). `--init` and `core=0` match the upstream gui
 docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 ```
 
+On Windows (detached container, same flags as the PowerShell helper):
+
+```powershell
+docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
+```
+
 First pull is large. Prefer an **explicit tag**; `latest` is not always published.
 
 ### 3.3 Check alive
@@ -318,6 +354,13 @@ First pull is large. Prefer an **explicit tag**; `latest` is not always publishe
 ```bash
 curl -s http://localhost:8070/api/isalive
 # or: ./scripts/setup-grobid.sh status
+```
+
+On Windows PowerShell, prefer `curl.exe` (not the `curl` alias for `Invoke-WebRequest`):
+
+```powershell
+curl.exe -s http://127.0.0.1:8070/api/isalive
+# or: .\scripts\setup-grobid.ps1 status
 ```
 
 Expect a body containing `true`.
@@ -373,6 +416,12 @@ Offline:
 python3 pdf2zotero.py paper.pdf --no-doi-lookup
 ```
 
+Windows:
+
+```powershell
+python pdf2zotero.py paper.pdf --no-doi-lookup
+```
+
 (or web UI “Offline mode”).
 
 ---
@@ -391,6 +440,13 @@ brew install git
 git clone https://github.com/jensabrahamsson/pdf2zotero.git
 cd pdf2zotero
 chmod +x pdf2zotero.py webui.py
+```
+
+On Windows (PowerShell; no `chmod` required for `python script.py`):
+
+```powershell
+git clone https://github.com/jensabrahamsson/pdf2zotero.git
+cd pdf2zotero
 ```
 
 **No runtime pip dependencies** (stdlib only). A local `.venv` is fine for development and verification; you do not need `pip install -r requirements.txt` for the app itself.
@@ -429,7 +485,172 @@ Formula / cask index: [formulae.brew.sh](https://formulae.brew.sh/).
 
 ---
 
+## Windows install order
+
+Additive path for **Windows**. The macOS/Linux sections above remain the primary happy path; this section does not replace them.
+
+Supported container runtime on Windows: **Docker Desktop** only (not Colima).  
+Shell: **PowerShell** or [Windows Terminal](https://learn.microsoft.com/en-us/windows/terminal/).
+
+Optional package managers (not required; use only if you already prefer them):
+
+| Tool | Example |
+|------|---------|
+| [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/) | `winget install Python.Python.3.12` · `winget install Docker.DockerDesktop` |
+| [Chocolatey](https://chocolatey.org/) | `choco install python docker-desktop` |
+
+### W1. Python 3.9+ from python.org
+
+1. Download the Windows installer from [python.org/downloads](https://www.python.org/downloads/).  
+2. During setup, enable **“Add python.exe to PATH”**.  
+3. Prefer **3.11–3.14** (3.9 is the compatibility floor).  
+4. Docs: [Using Python on Windows](https://docs.python.org/3/using/windows.html).
+
+**Check** (PowerShell):
+
+```powershell
+python --version
+# or the Windows py launcher:
+py -3 --version
+```
+
+On many Windows installs **`python3` is missing**; use `python` or `py -3`. The repo shebang (`#!/usr/bin/env python3`) is for Unix — on Windows always invoke the interpreter explicitly:
+
+```powershell
+python pdf2zotero.py paper.pdf
+py -3 pdf2zotero.py paper.pdf
+```
+
+**Done when:**
+
+```powershell
+python -c "import sys; assert sys.version_info >= (3, 9); print('OK', sys.version)"
+```
+
+### W2. Docker Desktop for Windows
+
+1. Install from [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/)  
+   (product page: [Docker Desktop](https://www.docker.com/products/docker-desktop/)).  
+2. Start **Docker Desktop** and wait until the engine reports **running**.  
+3. If the installer requires **WSL 2**, follow Docker’s Windows install docs for the WSL 2 backend.  
+4. Login is optional for pulling public images such as `grobid/grobid`.
+
+**Check:**
+
+```powershell
+docker version
+docker info
+docker run --rm hello-world
+```
+
+You need a **Server** section from `docker version`. Client-only errors → Desktop not running.
+
+### W3. GROBID
+
+From the **repo root**, with Docker Desktop running:
+
+```powershell
+.\scripts\setup-grobid.ps1 up
+.\scripts\setup-grobid.ps1 status
+```
+
+- Default image: `grobid/grobid:0.9.0-crf` (lighter).  
+- Full models: `.\scripts\setup-grobid.ps1 up -Full` → `grobid/grobid:0.9.0-full`.  
+- Stop container only: `.\scripts\setup-grobid.ps1 down`  
+- Stop + delete images: `.\scripts\setup-grobid.ps1 purge`  
+
+If execution policy blocks `.ps1` scripts:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-grobid.ps1 up
+```
+
+Or once for your user account:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+**Manual alternative** (same image and flags as the helper):
+
+```powershell
+docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
+```
+
+**Alive check** (use `curl.exe` so PowerShell does not rewrite `curl`):
+
+```powershell
+curl.exe -s http://127.0.0.1:8070/api/isalive
+# expect a body containing true
+```
+
+The PowerShell helper does **not** auto-start Colima or Docker Desktop — start Docker Desktop first.
+
+Follow [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/).  
+Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
+
+### W4. Zotero desktop
+
+| Resource | URL |
+|----------|-----|
+| Download | [zotero.org/download](https://www.zotero.org/download/) |
+| Documentation home | [zotero.org/support](https://www.zotero.org/support) |
+| Import BibTeX / formats | [Importing standardized formats](https://www.zotero.org/support/kb/importing_standardized_formats) |
+| Attach PDFs | [Adding files](https://www.zotero.org/support/attaching_files) |
+
+Install the desktop app from the download page. Required for the product goal (library item + PDF); not required only to *generate* `.bib` files.
+
+### W5. Git + this repository
+
+| Resource | URL |
+|----------|-----|
+| Git for Windows | [git-scm.com](https://git-scm.com/) |
+| GitHub repo | [github.com/jensabrahamsson/pdf2zotero](https://github.com/jensabrahamsson/pdf2zotero) |
+
+```powershell
+git clone https://github.com/jensabrahamsson/pdf2zotero.git
+cd pdf2zotero
+```
+
+No `chmod` and no `pip install` for the app (stdlib only).
+
+### W6. Network (usual case) / offline
+
+Same hosts as on macOS: [doi.org](https://www.doi.org/) and [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/).
+
+Offline conversion (skips doi.org / Crossref only; does not stop a configured remote GROBID):
+
+```powershell
+python pdf2zotero.py paper.pdf --no-doi-lookup
+```
+
+### Windows “done when” checks
+
+Mirror of the macOS quick verify:
+
+```powershell
+python --version
+# or: py -3 --version
+docker info | Out-Null; if ($?) { "docker OK" }
+curl.exe -s http://127.0.0.1:8070/api/isalive
+Get-Item pdf2zotero.py, webui.py, scripts\setup-grobid.ps1
+```
+
+| # | Check |
+|---|--------|
+| 1 | `python --version` (or `py -3 --version`) ≥ 3.9 |
+| 2 | `docker info` OK (Docker Desktop running) |
+| 3 | isalive body contains `true` |
+| 4 | Repo files present (`pdf2zotero.py`, `webui.py`, `scripts\setup-grobid.ps1`) |
+| 5 | Zotero desktop installed for import ([download](https://www.zotero.org/download/)) |
+
+Continue with **[GETTING_STARTED.md](GETTING_STARTED.md)** (convert → Zotero **File → Import…** → attach PDF if needed).
+
+---
+
 ## Quick verify (all prerequisites)
+
+**macOS / Linux:**
 
 ```bash
 brew --version          # macOS path
@@ -439,14 +660,26 @@ curl -s http://localhost:8070/api/isalive
 ls pdf2zotero.py webui.py
 ```
 
+**Windows** (PowerShell): see [Windows “done when” checks](#windows-done-when-checks) above.
+
 ---
 
 ## Minimal “start of day” checklist
+
+**macOS / Linux:**
 
 1. **Homebrew tools available** (`brew`, `python3`, `docker` on `PATH`)  
 2. **Runtime up:** Docker Desktop **or** `colima start`  
 3. **GROBID up:** `curl -s http://localhost:8070/api/isalive`  
 4. **Convert:** [GETTING_STARTED.md](GETTING_STARTED.md)  
+5. **Zotero import + PDF attach:** same guide + [Zotero docs](https://www.zotero.org/support)  
+
+**Windows:**
+
+1. **Python on PATH** (`python` or `py -3`)  
+2. **Docker Desktop running** (`docker info`)  
+3. **GROBID up:** `.\scripts\setup-grobid.ps1 up` then `curl.exe -s http://127.0.0.1:8070/api/isalive`  
+4. **Convert:** [GETTING_STARTED.md](GETTING_STARTED.md) (`python pdf2zotero.py …` or `python webui.py`)  
 5. **Zotero import + PDF attach:** same guide + [Zotero docs](https://www.zotero.org/support)  
 
 ---
@@ -456,14 +689,17 @@ ls pdf2zotero.py webui.py
 | Problem | Fix | Link |
 |---------|-----|------|
 | `brew: command not found` | Install Homebrew; fix PATH | [brew.sh](https://brew.sh/) · [Installation](https://docs.brew.sh/Installation) |
-| `python3: command not found` | `brew install python@3.12` | [python@3.12](https://formulae.brew.sh/formula/python@3.12) |
-| `docker: command not found` | Desktop cask **or** `brew install docker colima` | [docker-desktop](https://formulae.brew.sh/cask/docker-desktop) · [docker](https://formulae.brew.sh/formula/docker) |
+| `python3: command not found` | macOS: `brew install python@3.12`. Windows: use `python` / `py -3` from python.org (+ PATH) | [python@3.12](https://formulae.brew.sh/formula/python@3.12) · [python.org](https://www.python.org/downloads/) |
+| `docker: command not found` | Desktop cask **or** `brew install docker colima` (Mac/Linux). Windows: install Docker Desktop | [docker-desktop](https://formulae.brew.sh/cask/docker-desktop) · [Windows install](https://docs.docker.com/desktop/setup/install/windows-install/) |
 | Cannot connect to Docker daemon | Start Desktop / `colima start` + `docker context use colima` | [Colima](https://github.com/abiosoft/colima) · [Desktop](https://docs.docker.com/desktop/) |
 | `docker-credential-desktop` errors | Edit `~/.docker/config.json`, drop `credsStore: desktop` | [Docker config](https://docs.docker.com/reference/cli/docker/#configuration-files) |
 | `grobid:latest` not found | Use pinned tag `0.9.0-crf` or `0.9.0-full` | [grobid/grobid tags](https://hub.docker.com/r/grobid/grobid/tags) · [Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/) |
 | tini / AVX / never alive | Prefer CRF image; update Docker/Colima (§3.3) | [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/) |
 | Port 8070 busy | `docker ps` → `docker rm -f <id>` | [docker ps](https://docs.docker.com/reference/cli/docker/container/ls/) |
 | Zotero missing | Install desktop app | [download](https://www.zotero.org/download/) · [cask](https://formulae.brew.sh/cask/zotero) |
+| PowerShell: cannot run `setup-grobid.ps1` | Bypass once, or `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` | [about_Execution_Policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies) |
+| Windows: `curl` returns unexpected HTML/object | Use `curl.exe` (not the `Invoke-WebRequest` alias) | — |
+| Windows: Docker daemon down | Start Docker Desktop; script does not start Colima | [Windows install](https://docs.docker.com/desktop/setup/install/windows-install/) |
 
 ---
 
@@ -471,7 +707,7 @@ ls pdf2zotero.py webui.py
 
 | File | Role |
 |------|------|
-| **[PREREQUISITES.md](PREREQUISITES.md)** (this file) | Homebrew, Python, Docker/Colima, GROBID, Zotero |
+| **[PREREQUISITES.md](PREREQUISITES.md)** (this file) | Homebrew / Windows, Python, Docker/Colima, GROBID, Zotero |
 | **[GETTING_STARTED.md](GETTING_STARTED.md)** | Convert + import into Zotero |
 | **[README.md](README.md)** | Overview and CLI/web flags |
 | **[GUIDE.md](GUIDE.md)** | Architecture and design |

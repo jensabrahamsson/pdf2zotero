@@ -198,10 +198,10 @@ The architecture assumes these are available at runtime.
 
 | Layer | Prerequisite | Failure mode if missing |
 |-------|----------------|-------------------------|
-| Runtime | Python **3.9+** (recommend **3.11–3.14**; shebang `python3`) | Script does not start |
-| Executable | `chmod +x pdf2zotero.py` (optional `~/bin/pdf2zotero` symlink) | `Permission denied` / `command not found` |
+| Runtime | Python **3.9+** (recommend **3.11–3.14**; shebang `python3`; Windows: `python` / `py -3`) | Script does not start |
+| Executable | `chmod +x pdf2zotero.py` (optional `~/bin/pdf2zotero` symlink; Windows invokes `python pdf2zotero.py`) | `Permission denied` / `command not found` |
 | PDF understanding | GROBID HTTP API | Hard error: cannot process PDF |
-| Hosting GROBID | Docker (or other GROBID install) | Same as above if nothing listens on the URL |
+| Hosting GROBID | Docker (or other GROBID install); Windows: Docker Desktop + `scripts/setup-grobid.ps1` | Same as above if nothing listens on the URL |
 | Authoritative metadata | HTTPS to **doi.org** (BibTeX) and **Crossref** (DOI search) | Warning + fallback to local BibTeX |
 | Library UI | Zotero (optional for generation) | You still get `.bib`; no in-app library |
 
@@ -220,6 +220,10 @@ The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and o
 - **PDF attachment:** JabRef/Zotero-style field  
   `file = {:/absolute/path/to/paper.pdf:application/pdf}`  
   always added (including when DOI metadata is used).  
+  Paths are written with **POSIX separators** (`Path.resolve().as_posix()`) so Windows backslashes never hit BibTeX escaping; on Windows the value looks like  
+  `file = {:C:/Users/…/paper.pdf:application/pdf}`.  
+  If import does not attach the PDF, drag it onto the parent item  
+  ([attaching files](https://www.zotero.org/support/attaching_files)).  
 - **Offline / privacy:** `--no-doi-lookup` skips **doi.org and Crossref only**. It does **not** stop a configured remote GROBID URL from receiving the PDF.  
 - **Debugging:** `--save-tei` writes GROBID’s TEI XML next to the `.bib` file (CLI).  
 - **Resources:** Local GROBID is the heavy dependency (container image + RAM); the Python tools themselves are trivial.

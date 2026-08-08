@@ -4,6 +4,7 @@
 
 > **New here?**  
 > 1. **[PREREQUISITES.md](PREREQUISITES.md)** — Python, Docker/Colima, GROBID, Zotero  
+>    (Windows: [Windows install order](PREREQUISITES.md#windows-install-order) + `scripts/setup-grobid.ps1`)  
 > 2. **[GETTING_STARTED.md](GETTING_STARTED.md)** — convert → import into Zotero → attach PDF  
 
 Metadata extraction is only a step. The goal is the Zotero library:
@@ -26,7 +27,7 @@ Parse the PDF and look up the best metadata are two different problems; **landin
 
 | Doc | Contents |
 |-----|----------|
-| **[PREREQUISITES.md](PREREQUISITES.md)** | Python, Docker **or** Colima, GROBID, Zotero — install in order |
+| **[PREREQUISITES.md](PREREQUISITES.md)** | Python, Docker **or** Colima, GROBID, Zotero — install in order (macOS/Linux primary; [Windows section](PREREQUISITES.md#windows-install-order)) |
 | **[GETTING_STARTED.md](GETTING_STARTED.md)** | Convert PDFs and import into Zotero (after prerequisites) |
 | **[GUIDE.md](GUIDE.md)** | Architecture, design rationale, diagrams |
 | **[e2e/README.md](e2e/README.md)** | Open-access corpus + batch e2e harness (hundreds of PDFs) |
@@ -98,8 +99,22 @@ python3 webui.py
 # → http://127.0.0.1:8765/  (saves under ~/Downloads/pdf2zotero/)
 ```
 
-Then in Zotero: **File → Import… → A file** → choose the `.bib`.  
-If there is no PDF under the item, drag the PDF onto it.
+**Windows:** install order and GROBID helper are in  
+[PREREQUISITES → Windows](PREREQUISITES.md#windows-install-order) (`.\scripts\setup-grobid.ps1 up`).  
+Use `python` or `py -3` (stock installs often lack `python3`):
+
+```powershell
+git clone https://github.com/jensabrahamsson/pdf2zotero.git
+cd pdf2zotero
+.\scripts\setup-grobid.ps1 up
+python pdf2zotero.py artikel.pdf
+# or: python webui.py
+```
+
+Then in Zotero: **File → Import… → A file** → choose the `.bib`  
+([import formats](https://www.zotero.org/support/kb/importing_standardized_formats)).  
+If there is no PDF under the item, drag the PDF onto it  
+([attaching files](https://www.zotero.org/support/attaching_files)).
 
 ```mermaid
 flowchart LR
@@ -142,13 +157,14 @@ Works for **articles, books, and reports**. Local fallbacks use `@article`, `@bo
 ## Prerequisites
 
 **Full install instructions (Python, Docker or Colima, GROBID, Zotero):**  
-→ **[PREREQUISITES.md](PREREQUISITES.md)**
+→ **[PREREQUISITES.md](PREREQUISITES.md)**  
+→ **Windows:** [PREREQUISITES → Windows install order](PREREQUISITES.md#windows-install-order)
 
 | | Requirement |
 |--|-------------|
-| Python | 3.9+ floor (recommend 3.11–3.14; 3.9 is EOL) — `python3 --version` |
-| Containers | Docker Desktop **or** Colima + Docker CLI |
-| GROBID | `./scripts/setup-grobid.sh up` then `curl -s http://localhost:8070/api/isalive` (see [PREREQUISITES.md](PREREQUISITES.md)) |
+| Python | 3.9+ floor (recommend 3.11–3.14; 3.9 is EOL) — `python3 --version` (Windows: `python` / `py -3`) |
+| Containers | Docker Desktop **or** Colima + Docker CLI (Windows: Docker Desktop only) |
+| GROBID | `./scripts/setup-grobid.sh up` then `curl -s http://localhost:8070/api/isalive` (Windows: `.\scripts\setup-grobid.ps1 up` + `curl.exe`; see [PREREQUISITES.md](PREREQUISITES.md)) |
 | Zotero | [Desktop app](https://www.zotero.org/download/) for library import |
 | Network | doi.org + Crossref (optional with `--no-doi-lookup`; does not block remote GROBID) |
 
@@ -263,10 +279,11 @@ Full click-path and success checklist:
 | `Could not contact GROBID` | Start GROBID; wait; check `--grobid-url` |
 | Web UI: GROBID offline | Same |
 | `.bib` is tiny / `unknown…` | Bad parse; try text-layer PDF; ensure network for Crossref |
-| Import OK, **no PDF** | Drag PDF onto the item in Zotero |
-| `command not found: pdf2zotero` | Use `python3 pdf2zotero.py` or PATH symlink |
+| Import OK, **no PDF** | Drag PDF onto the item in Zotero ([attaching files](https://www.zotero.org/support/attaching_files)) |
+| `command not found: pdf2zotero` | Use `python3 pdf2zotero.py` or PATH symlink (Windows: `python pdf2zotero.py`) |
 | Port 8765 in use | `python3 webui.py --port 8766` |
 | Web UI will not open | `--no-browser` and open `http://127.0.0.1:8765/` manually |
+| Windows: `python3` missing | Use `python` or `py -3` ([PREREQUISITES — Windows](PREREQUISITES.md#windows-install-order)) |
 
 Step-by-step recovery: [GETTING_STARTED.md → Troubleshooting](GETTING_STARTED.md#troubleshooting).
 
