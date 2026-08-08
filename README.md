@@ -255,7 +255,7 @@ The `.bib` import creates the **parent item**. The **PDF** is a separate file at
 
 6. Select the new parent item.  
 7. If a PDF child is already listed under it → stop; you are done.  
-8. Otherwise open Finder and locate the `.pdf`.  
+8. Otherwise open **Finder** (macOS), **File Explorer** (Windows), or your file manager (Linux) and locate the `.pdf`.  
 9. Drag the PDF and **drop it onto the parent item** in Zotero’s middle pane.  
 10. Expand the item and double-click the PDF to verify.
 

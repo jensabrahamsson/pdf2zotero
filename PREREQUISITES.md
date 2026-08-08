@@ -307,7 +307,7 @@ chmod +x scripts/setup-grobid.sh   # once
 - Full models: `./scripts/setup-grobid.sh up --full` → `grobid/grobid:0.9.0-full`.  
 - Starts Colima automatically if `docker info` fails and `colima` is installed.
 
-**Windows** (`scripts/setup-grobid.ps1`) — Docker Desktop must already be running (no Colima auto-start):
+**Windows** (`scripts/setup-grobid.ps1`) — Docker Desktop must already be running (no Colima auto-start); run from a local clone of this repo:
 
 ```powershell
 .\scripts\setup-grobid.ps1 up
@@ -315,6 +315,9 @@ chmod +x scripts/setup-grobid.sh   # once
 .\scripts\setup-grobid.ps1 down
 .\scripts\setup-grobid.ps1 purge
 ```
+
+- Default image: `grobid/grobid:0.9.0-crf` (lighter).  
+- Full models: `.\scripts\setup-grobid.ps1 up -Full` → `grobid/grobid:0.9.0-full`.
 
 If PowerShell blocks script execution:
 
@@ -545,9 +548,25 @@ docker run --rm hello-world
 
 You need a **Server** section from `docker version`. Client-only errors → Desktop not running.
 
-### W3. GROBID
+### W3. Git + this repository
 
-From the **repo root**, with Docker Desktop running:
+Clone before starting GROBID via the helper script (the script lives in `scripts\` inside the repo).
+
+| Resource | URL |
+|----------|-----|
+| Git for Windows | [git-scm.com](https://git-scm.com/) |
+| GitHub repo | [github.com/jensabrahamsson/pdf2zotero](https://github.com/jensabrahamsson/pdf2zotero) |
+
+```powershell
+git clone https://github.com/jensabrahamsson/pdf2zotero.git
+cd pdf2zotero
+```
+
+No `chmod` and no `pip install` for the app (stdlib only).
+
+### W4. GROBID
+
+From the **repo root** (after [W3](#w3-git--this-repository)), with Docker Desktop running:
 
 ```powershell
 .\scripts\setup-grobid.ps1 up
@@ -571,7 +590,7 @@ Or once for your user account:
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-**Manual alternative** (same image and flags as the helper):
+**Manual alternative** (does not require the helper script; same image and flags):
 
 ```powershell
 docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
@@ -589,7 +608,7 @@ The PowerShell helper does **not** auto-start Colima or Docker Desktop — start
 Follow [GROBID Docker](https://grobid.readthedocs.io/en/latest/Grobid-docker/).  
 Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
 
-### W4. Zotero desktop
+### W5. Zotero desktop
 
 | Resource | URL |
 |----------|-----|
@@ -599,20 +618,6 @@ Hub: [grobid/grobid](https://hub.docker.com/r/grobid/grobid).
 | Attach PDFs | [Adding files](https://www.zotero.org/support/attaching_files) |
 
 Install the desktop app from the download page. Required for the product goal (library item + PDF); not required only to *generate* `.bib` files.
-
-### W5. Git + this repository
-
-| Resource | URL |
-|----------|-----|
-| Git for Windows | [git-scm.com](https://git-scm.com/) |
-| GitHub repo | [github.com/jensabrahamsson/pdf2zotero](https://github.com/jensabrahamsson/pdf2zotero) |
-
-```powershell
-git clone https://github.com/jensabrahamsson/pdf2zotero.git
-cd pdf2zotero
-```
-
-No `chmod` and no `pip install` for the app (stdlib only).
 
 ### W6. Network (usual case) / offline
 
