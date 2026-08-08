@@ -76,10 +76,13 @@ jobs:
       - name: Compile
         run: python -m py_compile pdf2zotero.py webui.py e2e/harness.py
 
+      # Separate steps so PowerShell fails the job if either suite fails
+      # (multi-line pwsh run only surfaces the last command's exit code).
       - name: Unit tests
-        run: |
-          python -m unittest discover -s tests -v
-          python -m unittest e2e.test_harness_unit -v
+        run: python -m unittest discover -s tests -v
+
+      - name: Harness unit tests
+        run: python -m unittest e2e.test_harness_unit -v
 
   live-smoke:
     name: Live GROBID smoke (manual)
