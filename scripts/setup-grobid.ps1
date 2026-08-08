@@ -11,6 +11,10 @@
 #   .\scripts\setup-grobid.ps1 down         # stop/remove container only
 #   .\scripts\setup-grobid.ps1 purge        # stop container + delete GROBID images
 #
+# If execution policy blocks the script, run via:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-grobid.ps1 up
+# Explicit -Image / --image wins over -Full / -Crf when both are set.
+#
 # Requires: Docker Desktop (daemon running). Does not auto-start Colima.
 # Copyright (c) 2026 Jens Abrahamsson. MIT License.
 
@@ -56,6 +60,10 @@ function Show-Usage {
         "",
         "Aliases: start/setup → up; stop → down; remove/clean → purge",
         "Flags:   -Full / --full, -Crf / --crf; -Port / --port N; -Name / --name; -Image / --image",
+        "Note:    Explicit -Image / --image wins over -Full / -Crf when both are set.",
+        "",
+        "If execution policy blocks the script:",
+        "  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-grobid.ps1 up",
         "",
         "Requires: Docker Desktop (daemon running). Does not auto-start Colima."
     )
@@ -109,6 +117,7 @@ if (-not $Port) {
 
 $ImageCrf = "grobid/grobid:0.9.0-crf"
 $ImageFull = "grobid/grobid:0.9.0-full"
+# Explicit -Image / --image wins over -Full / -Crf (resolved only when Image unset).
 if (-not $Image) {
     if ($Full) { $Image = $ImageFull }
     elseif ($Crf) { $Image = $ImageCrf }
@@ -117,7 +126,11 @@ if (-not $Image) {
 
 $WaitAttempts = 36
 if ($env:GROBID_WAIT_ATTEMPTS) {
-    $WaitAttempts = [int]$env:GROBID_WAIT_ATTEMPTS
+    $parsedWait = 0
+    if (-not [int]::TryParse($env:GROBID_WAIT_ATTEMPTS, [ref]$parsedWait)) {
+        Die "GROBID_WAIT_ATTEMPTS must be an integer (got: $($env:GROBID_WAIT_ATTEMPTS))"
+    }
+    $WaitAttempts = $parsedWait
 }
 $WaitSleep = 5
 
@@ -145,7 +158,7 @@ function Test-GrobidAlive {
     if ($curl) {
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        $out = & curl.exe -sf $url 2>$null
+        $out = & curl.exe -sf --max-time 3 $url 2>$null
         $ok = ($LASTEXITCODE -eq 0)
         $ErrorActionPreference = $prev
         if ($ok -and $null -ne $out) {
@@ -172,7 +185,7 @@ function Get-HttpText {
     if ($curl) {
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        $out = & curl.exe -s $Url 2>$null
+        $out = & curl.exe -s --max-time 5 $Url 2>$null
         $ErrorActionPreference = $prev
         if ($LASTEXITCODE -eq 0 -and $null -ne $out) {
             return ($out | Out-String).Trim()
@@ -249,14 +262,14 @@ function Invoke-Up {
         Write-Host "Removing existing container '${Name}'…"
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        & docker rm -f $Name | Out-Null
+        $null = & docker rm -f $Name
         $ErrorActionPreference = $prev
     }
 
     Write-Host "Starting named container '${Name}' on port ${Port}…"
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    & docker run -d --name $Name --init --ulimit core=0 -p "${Port}:8070" $Image | Out-Null
+    $null = & docker run -d --name $Name --init --ulimit core=0 -p "${Port}:8070" $Image
     $runOk = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = $prev
     if (-not $runOk) { Die "docker run failed for container '${Name}'" }
@@ -325,11 +338,12 @@ function Invoke-Purge {
     }
 
     # Any other grobid-related tags (including leftovers not in the known list)
+    # Force array: a single docker output line is a [string]; foreach would iterate chars.
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $all = & docker images --format '{{.Repository}} {{.Tag}}' 2>$null
+    $all = @(& docker images --format '{{.Repository}} {{.Tag}}' 2>$null)
     $ErrorActionPreference = $prev
-    if ($all) {
+    if ($all.Count -gt 0) {
         foreach ($line in $all) {
             $parts = ($line -split '\s+', 2)
             if ($parts.Count -lt 2) { continue }
