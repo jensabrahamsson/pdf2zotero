@@ -32,7 +32,7 @@ When running or documenting the tool, assume and verify:
 | Script executable bit | `chmod +x pdf2zotero.py` when documenting install |
 | GROBID up | `curl -s http://localhost:8070/api/isalive` (or configured `--grobid-url`) |
 | Optional doi.org | Network; skip with `--no-doi-lookup` in offline tests |
-| No pip deps | Do not add `requirements.txt` for the main script unless the user asks |
+| No pip deps | `requirements.txt` is intentionally empty (stdlib only). Do not add runtime PyPI packages unless the user explicitly accepts that trade-off |
 | GitHub repo name | **`pdf2zotero`** under `jensabrahamsson` — not `zotero` |
 
 Do not claim the project “installs with pip” or bundles GROBID. Document external services as **prerequisites**, not as optional nice-to-haves, except Zotero (optional for generation) and doi.org (optional with `--no-doi-lookup`).
@@ -55,10 +55,11 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 pdf2zotero.py      # CLI + conversion library
 webui.py           # local drag-and-drop HTTP UI (stdlib)
 webui_static/      # index.html, styles.css, app.js
-scripts/           # setup-grobid.sh (Docker GROBID up/down/purge)
+scripts/           # setup-grobid.sh / setup-grobid.ps1 (Docker GROBID)
 tests/             # stdlib unittest (pdf2zotero + webui)
 e2e/               # live OA harness + harness unit tests
-.github/workflows/ # CI (py_compile + unittest)
+requirements.txt   # intentionally empty (stdlib-only runtime)
+.github/           # workflows + dependabot.yml
 PREREQUISITES.md   # Python, Docker/Colima, GROBID, Zotero install
 GETTING_STARTED.md # convert + how material enters Zotero
 README.md          # overview + flag reference

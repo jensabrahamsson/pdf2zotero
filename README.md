@@ -152,7 +152,7 @@ Works for **articles, books, and reports**. Local fallbacks use `@article`, `@bo
 | Zotero | [Desktop app](https://www.zotero.org/download/) for library import |
 | Network | doi.org + Crossref (optional with `--no-doi-lookup`; does not block remote GROBID) |
 
-No runtime `pip install` for pdf2zotero (stdlib only). A `.venv` is fine for dev. See PREREQUISITES for install detail.
+No runtime PyPI packages (stdlib only). [`requirements.txt`](requirements.txt) is intentionally empty; `pip install -r requirements.txt` is optional and a no-op. A `.venv` is fine for dev. See PREREQUISITES for install detail.
 
 ## Usage reference
 

@@ -1,0 +1,12 @@
+# Runtime dependencies for pdf2zotero / webui.py
+#
+# Intentionally empty: the app uses the Python standard library only
+# (urllib, pathlib, argparse, http.server, xml, re, …). No PyPI packages.
+#
+# Why this file exists:
+#   - Makes the dependency surface explicit (there is none)
+#   - Lets Dependabot watch the pip ecosystem if anything is added later
+#   - Documents “pip install -r requirements.txt” as a no-op for runtime
+#
+# Do not add packages here unless the project deliberately leaves stdlib-only.
+# Dev/test tooling (if ever needed) should go in requirements-dev.txt instead.

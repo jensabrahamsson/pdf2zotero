@@ -1,5 +1,5 @@
-# Dependabot — keep CI Actions current.
-# pdf2zotero has no pip/runtime package ecosystem (stdlib only).
+# Dependabot — keep GitHub Actions (and pip, if any) current.
+# Runtime is stdlib-only; requirements.txt is intentionally empty.
 # Docs: https://docs.github.com/en/code-security/dependabot
 
 version: 2
@@ -15,4 +15,17 @@ updates:
       - "github-actions"
     commit-message:
       prefix: "ci"
+      include: "scope"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
       include: "scope"

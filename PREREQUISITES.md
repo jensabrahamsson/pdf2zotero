@@ -393,7 +393,7 @@ cd pdf2zotero
 chmod +x pdf2zotero.py webui.py
 ```
 
-**No runtime pip dependencies** (stdlib only). A local `.venv` is fine for development and verification; you do not need `pip install -r requirements.txt` for the app itself.
+**No runtime pip dependencies** (stdlib only). [`requirements.txt`](requirements.txt) is present and **intentionally empty** so the dependency surface is explicit; `pip install -r requirements.txt` is a no-op for running the app. A local `.venv` is fine for development and verification.
 
 ---
 

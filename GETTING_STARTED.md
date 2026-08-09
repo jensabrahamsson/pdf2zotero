@@ -64,7 +64,7 @@ pdf2zotero **never writes into Zotero by itself**. It prepares files; **you** im
 | 5 | Zotero desktop | [download](https://www.zotero.org/download/) |
 | 6 | Network (usual) | for doi.org / Crossref |
 
-**You do not need:** `pip install`, Crossref API key, Zotero API key, or LaTeX.
+**You do not need:** third-party pip packages (runtime is stdlib-only; `requirements.txt` is empty), Crossref API key, Zotero API key, or LaTeX.
 
 Short clone (details in PREREQUISITES):
 
