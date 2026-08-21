@@ -6,7 +6,8 @@ Workflow:
 1. Send the PDF to a running GROBID server.
 2. Extract DOI and bibliographic metadata from GROBID TEI XML.
 3. If metadata is thin (common for books/reports), fill from the PDF Info dictionary.
-4. If a DOI is found (GROBID or Crossref search), request BibTeX from doi.org.
+4. If a usable DOI is found (GROBID or Crossref search), request BibTeX from doi.org.
+   Truncated/trailing-hyphen DOIs are treated as missing so Crossref can still run.
 5. Otherwise, generate a BibTeX entry from available metadata
    (@article, @book, or @techreport).
 
@@ -54,10 +55,38 @@ CROSSREF_WORKS_URL = "https://api.crossref.org/v1/works"
 # Crossref match: reject weak hits (reviews/book chapters that only mention the title).
 CROSSREF_MIN_SCORE = 20.0
 RETRYABLE_HTTP = frozenset({429, 502, 503, 504})
+_TITLE_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "and",
+        "in",
+        "on",
+        "for",
+        "to",
+        "with",
+        "by",
+        "from",
+        "at",
+        "or",
+        "vs",
+        "via",
+        "into",
+        "over",
+        "under",
+    }
+)
+REVIEW_TITLE_RE = re.compile(
+    r"^\s*(?:a\s+|the\s+)?(?:book\s+)?review\b|\breview of\b|:\s*a\s+review\b",
+    re.IGNORECASE,
+)
 
+# Genre phrases — not the bare word "report" in an article/preprint title.
 REPORT_HINT_RE = re.compile(
     r"\b("
-    r"report|rapport|technical\s+report|tech\.?\s*report|tech\s*rep\.?|"
+    r"technical\s+report|tech\.?\s*report|tech\s*rep\.?|"
     r"working\s+paper|discussion\s+paper|research\s+report|research\s+paper|"
     r"white\s+paper|policy\s+(?:brief|paper|report)|occasional\s+paper|"
     r"staff\s+report|issue\s+brief|briefing\s+paper|"
@@ -66,8 +95,17 @@ REPORT_HINT_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+WEAK_REPORT_RE = re.compile(r"\b(report|rapport)\b", re.IGNORECASE)
 BOOK_HINT_RE = re.compile(
     r"\b(monograph|textbook|edited\s+volume|anthology|festschrift)\b",
+    re.IGNORECASE,
+)
+BOOK_PUBLISHER_RE = re.compile(
+    r"\b("
+    r"university\s+press|univ(?:ersity)?\.\s*press|"
+    r"press|verlag|publishers?|publishing|"
+    r"éditions?|edizioni|ediciones"
+    r")\b",
     re.IGNORECASE,
 )
 REPORT_NUMBER_RE = re.compile(
@@ -109,15 +147,31 @@ def infer_entry_type(
     publisher: str = "",
     institution: str = "",
     filename: str = "",
+    number: str = "",
     hint: str = "",
 ) -> str:
-    """Classify as article, book, or report from lightweight textual cues."""
+    """Classify as article, book, or report from lightweight textual cues.
+
+    Header-only TEI often puts an article title on ``monogr`` with no journal;
+    that is not enough to call the work a book. Bare “report” in a title is not
+    enough without a report number, institution, or a stronger genre phrase.
+    """
     if journal or hint == "article":
         return "article"
-    blob = " ".join(x for x in (title, publisher, institution, filename) if x)
-    if hint == "report" or REPORT_HINT_RE.search(blob):
+    filename_blob = filename.replace("_", " ").replace("-", " ")
+    blob = " ".join(
+        x for x in (title, publisher, institution, filename_blob) if x
+    )
+    has_report_id = bool(number) or bool(extract_report_number(blob))
+    if hint == "report":
+        return "report"
+    if REPORT_HINT_RE.search(blob):
+        return "report"
+    if WEAK_REPORT_RE.search(blob) and (has_report_id or institution):
         return "report"
     if hint == "book" or BOOK_HINT_RE.search(blob):
+        return "book"
+    if publisher and BOOK_PUBLISHER_RE.search(publisher):
         return "book"
     # Missing journal is normal for preprints and many OA PDFs — do not assume book.
     return "article"
@@ -313,13 +367,13 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
             break
 
     report_number = scopes.get("report") or scopes.get("issue") or scopes.get("number") or ""
+    # Monogr-only header TEI is common for preprints — do not force @book.
+    # Books still classify via publisher (university press / Verlag) or BOOK_HINT_RE.
     entry_type = infer_entry_type(
         title=title,
         journal=journal,
         publisher=publisher,
-        hint="report" if REPORT_HINT_RE.search(title or monogr_title or "") else (
-            "book" if is_monographic else ""
-        ),
+        number=report_number,
     )
     if journal:
         entry_type = "article"
@@ -378,6 +432,9 @@ def clean_doi(value: str) -> str:
         if doi.count(opener) >= doi.count(closer):
             break
         doi = doi[:-1]
+    # Trailing hyphen (GROBID line-break) or dangling slash → unusable, not a suffix.
+    if doi.endswith("-") or doi.endswith("/"):
+        return ""
     return doi
 
 
@@ -496,7 +553,15 @@ def extract_pdf_info(pdf_path: Path) -> Metadata:
     if year_match:
         year = year_match.group(0)
 
-    entry_type = infer_entry_type(title=title, filename=pdf_path.name) if title else "article"
+    entry_type = (
+        infer_entry_type(
+            title=title,
+            filename=pdf_path.name,
+            number=extract_report_number(title, pdf_path.name),
+        )
+        if title
+        else "article"
+    )
 
     return Metadata(
         title=title,
@@ -530,12 +595,13 @@ def metadata_from_filename(pdf_path: Path) -> Metadata:
     else:
         title = stem.replace("_", " ").strip()
 
-    entry_type = infer_entry_type(title=title, filename=stem)
+    number = extract_report_number(stem, title)
+    entry_type = infer_entry_type(title=title, filename=stem, number=number)
     return Metadata(
         title=title if m else (title if entry_type == "report" else ""),
         authors=authors,
         year=year,
-        number=extract_report_number(stem, title),
+        number=number,
         entry_type=entry_type if (m or entry_type == "report") else "article",
     )
 
@@ -593,6 +659,7 @@ def merge_metadata(base: Metadata, *extras: Metadata) -> Metadata:
             journal=out.journal,
             publisher=out.publisher,
             institution=out.institution,
+            number=out.number,
         )
     if out.entry_type == "report" and not out.institution and out.publisher:
         out.institution = out.publisher
@@ -614,8 +681,12 @@ def normalize_title(value: str) -> str:
     return " ".join("".join(chars).split())
 
 
+def _content_title_tokens(tokens: set[str]) -> set[str]:
+    return {t for t in tokens if t not in _TITLE_STOPWORDS and len(t) > 2}
+
+
 def title_similarity(a: str, b: str) -> float:
-    """Title match score in [0, 1] (Jaccard + containment of the shorter title)."""
+    """Title match score in [0, 1] (Jaccard + containment of a substantial shorter title)."""
     na = normalize_title(a)
     nb = normalize_title(b)
     ta = set(na.split())
@@ -623,10 +694,21 @@ def title_similarity(a: str, b: str) -> float:
     if not ta or not tb:
         return 0.0
     jaccard = len(ta & tb) / len(ta | tb)
-    # Full title vs short catalog title: "Meeting the Universe Halfway" ⊂ long title.
-    if na in nb or nb in na:
-        return max(jaccard, 0.92)
-    shorter, longer = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    ca, cb = _content_title_tokens(ta), _content_title_tokens(tb)
+    if not ca or not cb:
+        return jaccard
+    contained = na if na in nb else (nb if nb in na else "")
+    if contained:
+        content = _content_title_tokens(set(contained.split()))
+        # Several content words, or a single non-ASCII token (CJK titles).
+        # A one-word English catalog title like "Justice" must not score 0.92.
+        if len(content) >= 3 or (
+            len(content) == 1 and len(contained) >= 4 and not contained.isascii()
+        ):
+            return max(jaccard, 0.92)
+    shorter, longer = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
+    if len(shorter) < 3:
+        return jaccard
     coverage = len(shorter & longer) / len(shorter)
     return max(jaccard, coverage * 0.9)
 
@@ -655,6 +737,25 @@ def crossref_item_surnames(item: dict) -> set[str]:
         if family:
             surnames.add(re.sub(r"\W+", "", family).lower())
     return surnames
+
+
+def crossref_item_year(item: dict) -> str:
+    """First publication year from Crossref date-parts, if any."""
+    for key in ("published-print", "published-online", "published", "issued"):
+        block = item.get(key)
+        if not isinstance(block, dict):
+            continue
+        parts = block.get("date-parts") or []
+        if not parts or not parts[0]:
+            continue
+        year = str(parts[0][0])
+        if re.fullmatch(r"(?:18|19|20|21)\d{2}", year):
+            return year
+    return ""
+
+
+def looks_like_review_title(title: str) -> bool:
+    return bool(title and REVIEW_TITLE_RE.search(title))
 
 
 def _http_read_with_retry(
@@ -752,10 +853,21 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
         raise RuntimeError(f"Crossref search failed: {exc}") from exc
 
+    return pick_crossref_work(metadata, items)
+
+
+def pick_crossref_work(metadata: Metadata, items: list[dict]) -> tuple[str, str]:
+    """Pick a Crossref work DOI from already-fetched items, or ("", "").
+
+    Prefer rejecting a weak hit over attaching the wrong work. Short shared
+    tokens, missing person-authors (when the local record has them), reviews,
+    and chapters of the work do not win.
+    """
     best_doi = ""
     best_type = ""
     best_rank = -1.0
     want_authors = author_surnames(metadata.authors)
+    local_is_review = looks_like_review_title(metadata.title)
     monographic = metadata.entry_type in {"book", "report"}
 
     for item in items:
@@ -768,18 +880,24 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
         sim = title_similarity(metadata.title, item_title)
         work_type = (item.get("type") or "").lower()
         item_authors = crossref_item_surnames(item)
+        item_year = crossref_item_year(item)
 
-        # Articles need stronger title agreement than monographs (short shared tokens
-        # otherwise match unrelated books — seen on arXiv preprints).
-        min_sim = 0.45
+        # Articles need stronger title agreement than monographs (short shared
+        # tokens otherwise match unrelated books — seen on arXiv preprints).
+        min_sim = 0.55
         if metadata.entry_type == "article":
-            min_sim = 0.62
+            min_sim = 0.72
         if score < CROSSREF_MIN_SCORE or sim < min_sim:
             continue
 
-        # Author must match when both sides have person-authors (avoids reviews).
-        # Reports may list only an institution — allow empty Crossref authors then.
-        if want_authors and item_authors and not (want_authors & item_authors):
+        # Local person-authors must overlap Crossref person-authors. Do not
+        # skip this when Crossref lists none (institution-only / empty).
+        if want_authors and (not item_authors or not (want_authors & item_authors)):
+            continue
+
+        if not local_is_review and (
+            work_type == "peer-review" or looks_like_review_title(item_title)
+        ):
             continue
 
         if monographic and work_type == "journal-article":
@@ -790,13 +908,14 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
         if metadata.entry_type == "article" and work_type in CROSSREF_BOOK_TYPES:
             if sim < 0.92 or not (want_authors and item_authors and (want_authors & item_authors)):
                 continue
-        # Chapters/components/supplements often share tokens with papers — skip for articles.
+        # Chapters/components/supplements often share tokens with papers.
         if metadata.entry_type == "article" and work_type in {
             "book-chapter",
             "component",
             "reference-entry",
             "dataset",
             "peer-review",
+            "journal-issue",
         }:
             continue
 
@@ -810,15 +929,31 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
             elif sim < 0.85 or not (want_authors & item_authors):
                 continue
 
+        year_bonus = 0.0
+        if metadata.year and item_year:
+            try:
+                gap = abs(int(metadata.year) - int(item_year))
+            except ValueError:
+                gap = 0
+            else:
+                if gap > 2 and sim < 0.88:
+                    continue
+                if gap <= 1:
+                    year_bonus = 0.08
+                elif gap > 2:
+                    year_bonus = -0.15
+
         type_bonus = 0.0
         if work_type in CROSSREF_BOOK_TYPES:
             type_bonus = 0.35 if metadata.entry_type == "book" else 0.05
         if work_type in CROSSREF_REPORT_TYPES:
             type_bonus = 0.4 if metadata.entry_type == "report" else 0.15
+        if work_type == "journal-article" and metadata.entry_type == "article":
+            type_bonus = 0.12
         if work_type == "journal-article" and monographic:
             type_bonus = -1.0
 
-        rank = sim + type_bonus + min(score, 100.0) / 500.0
+        rank = sim + type_bonus + year_bonus + min(score, 100.0) / 500.0
         if rank > best_rank:
             best_rank = rank
             best_doi = doi
@@ -827,12 +962,58 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
     return best_doi, best_type
 
 
+def bibtex_field_value(text: str, name: str) -> str | None:
+    """Return the first BibTeX field value, or None if the field is absent."""
+    match = re.search(rf"(?im)\b{re.escape(name)}\s*=\s*", text or "")
+    if not match:
+        return None
+    rest = (text or "")[match.end() :].lstrip()
+    if rest.startswith("{"):
+        depth = 0
+        for index, char in enumerate(rest):
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return rest[1:index].strip()
+        return ""
+    if rest.startswith('"'):
+        end = rest.find('"', 1)
+        if end == -1:
+            return ""
+        return rest[1:end].strip()
+    token = re.match(r"([^,\n}]+)", rest)
+    return token.group(1).strip() if token else ""
+
+
 def looks_like_bibtex(text: str) -> bool:
-    """True if text looks like at least one BibTeX entry."""
+    """True if text is a usable BibTeX record (entry, key, non-empty title)."""
     stripped = (text or "").strip()
     if not stripped.startswith("@"):
         return False
-    return bool(re.search(r"@\w+\s*\{[^,]+,", stripped)) and "}" in stripped
+    head = stripped[:400].lower()
+    if head.startswith(("<?xml", "<!doctype", "<html", "<body")):
+        return False
+    if "&lt;" in head or "&#" in head[:80]:
+        return False
+    if re.search(r"<(?:html|body|div|p|teiheader)\b", stripped, re.I):
+        return False
+    match = re.match(r"@\w+\s*\{([^,]+),\s*", stripped)
+    if not match or "}" not in stripped:
+        return False
+    key = match.group(1).strip()
+    if not key or not re.fullmatch(r"[A-Za-z0-9_.:/\-]+", key):
+        return False
+    rest = stripped[match.end() :]
+    if rest.lstrip().startswith("}"):
+        return False
+    if not re.match(r"[A-Za-z][A-Za-z0-9_-]*\s*=", rest.lstrip()):
+        return False
+    title = bibtex_field_value(stripped, "title")
+    if not title:
+        return False
+    return True
 
 
 def fetch_bibtex_for_doi(doi: str, timeout: int) -> str:
@@ -1026,8 +1207,10 @@ def convert_one(
     pdf_meta = extract_pdf_info(pdf_path)
     name_meta = metadata_from_filename(pdf_path)
     metadata = merge_metadata(metadata, pdf_meta, name_meta)
+    # Truncated GROBID DOIs (trailing hyphen, etc.) are not usable identifiers.
+    metadata.doi = clean_doi(metadata.doi)
 
-    # Books/reports / thin GROBID output: resolve DOI via Crossref when possible.
+    # Resolve DOI via Crossref when none is usable (missing or truncated).
     if not metadata.doi and not no_doi_lookup and metadata.title:
         try:
             found_doi, work_type = crossref_find_doi(metadata, timeout)

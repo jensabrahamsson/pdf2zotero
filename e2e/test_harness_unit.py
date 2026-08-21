@@ -52,6 +52,21 @@ class ClassifyBibTests(unittest.TestCase):
             m = harness.classify_bib(bib, "GROBID/PDF fallback", pdf)
             self.assertTrue(m["looks_empty_metadata"])
             self.assertEqual(m["path_class"], "fallback")
+            self.assertFalse(m["has_title"])
+            self.assertFalse(harness.is_valid_result(m, "GROBID/PDF fallback"))
+
+    def test_titled_fallback_with_file_is_valid(self):
+        with tempfile.TemporaryDirectory() as td:
+            pdf = Path(td) / "x.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            field = pdf2zotero.zotero_file_field(pdf)
+            bib = f"""@article{{Lovelace_2020,
+  title = {{Hello World}},
+  file = {{{field}}}
+}}
+"""
+            m = harness.classify_bib(bib, "GROBID/PDF fallback", pdf)
+            self.assertTrue(m["has_title"])
             self.assertTrue(harness.is_valid_result(m, "GROBID/PDF fallback"))
 
     def test_doi_path_requires_doi_field(self):

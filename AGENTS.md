@@ -40,8 +40,8 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 ## Non-negotiables
 
 - **Stdlib only** for the main script (`pdf2zotero.py`). No new runtime pip dependencies unless the user explicitly asks and accepts that trade-off.  
-- Prefer **DOI BibTeX** over hand-built fields when a DOI is available.  
-- When GROBID is thin: merge **PDF Info** and light **filename** cues, then **Crossref** title/author search (author must match when both sides have person-authors; prefer book/monograph for books and report types for reports — never pick a review of the work).  
+- Prefer **DOI BibTeX** over hand-built fields when a **usable** DOI is available (trailing-hyphen / truncated GROBID DOIs are treated as missing).  
+- When GROBID is thin: merge **PDF Info** and light **filename** cues, then **Crossref** title/author search (if the local record has person-authors, Crossref must overlap those surnames; prefer book/monograph for books and report types for reports — never pick a review of the work; reject short-token / wrong-year hits).  
 - Fallback BibTeX types: **`@article`** / **`@book`** / **`@techreport`** from `entry_type` (`article` | `book` | `report`).  
 - Always attach the local PDF with a Zotero-compatible `file` field:  
   `:{absolute_path}:application/pdf`  

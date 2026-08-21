@@ -72,7 +72,7 @@ pdf2zotero fills that **library-intake** gap as open, local glue rather than ano
 flowchart TD
   PDF[scientific.pdf] --> GROBID[GROBID: PDF to TEI XML]
   GROBID --> META[Extract DOI, title, authors…]
-  META --> DOI{DOI found?}
+  META --> DOI{Usable DOI?}
   DOI -->|yes| DOIORG[doi.org authoritative BibTeX]
   DOI -->|no| FILL[PDF Info + filename + Crossref search]
   FILL --> LOCAL[Local article / book / techreport]
@@ -115,9 +115,11 @@ flowchart LR
   C --> D[Zotero]
 ```
 
-Reports are detected from title/filename cues such as *report*, *rapport*, *working paper*,
-*technical report*, *white paper*, *utredning*, etc., and from Crossref work types
-`report` / `report-series`.
+Reports are detected from genre phrases such as *technical report*, *working paper*,
+*white paper*, *utredning*, plus a report number or institution when the title only
+contains the bare word *report*, and from Crossref work types
+`report` / `report-series`. A monogr-only GROBID header (preprint/article with no
+journal node) is **not** classified as a book.
 
 ## Decision flow
 
@@ -126,7 +128,7 @@ flowchart TD
   S[Start] --> R[Read scientific PDF]
   R --> G["GROBID /api/processHeaderDocument"]
   G --> P[Parse TEI XML + PDF Info + filename]
-  P --> D{DOI available?}
+  P --> D{Usable DOI?}
   D -->|yes| B1[BibTeX from doi.org]
   D -->|no| XR[Crossref title/author search]
   XR -->|DOI found| B1
@@ -215,8 +217,8 @@ The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and o
 ## Implementation notes
 
 - **GROBID endpoint:** `POST /api/processHeaderDocument` (header only; enough for DOI and core fields, faster than full-text processing).  
-- **Crossref search:** `GET https://api.crossref.org/v1/works` when GROBID yields no DOI (title/author).  
-- **DOI BibTeX:** HTTP GET to `https://doi.org/{doi}` with `Accept: application/x-bibtex`.  
+- **Crossref search:** `GET https://api.crossref.org/v1/works` when GROBID yields no **usable** DOI (title/author). Trailing-hyphen / truncated GROBID DOIs (e.g. `10.1590/2175-`) are treated as missing so search can still run; they are not written into fallback BibTeX. Ranking requires a strong title match, overlapping surnames when the local record has person-authors, and rejects reviews/chapters and older works that only share a few tokens.  
+- **DOI BibTeX:** HTTP GET to `https://doi.org/{doi}` with `Accept: application/x-bibtex`. Payloads that are not a usable record (no `@` entry, comma in the cite key, missing/empty title, HTML/XML dump) are rejected and conversion falls back to local metadata.  
 - **PDF attachment:** JabRef/Zotero-style field  
   `file = {:/absolute/path/to/paper.pdf:application/pdf}`  
   always added (including when DOI metadata is used).  

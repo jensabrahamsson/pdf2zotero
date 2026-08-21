@@ -126,7 +126,7 @@ GROBID is excellent at reading PDFs, but it can still misread authors, pages, jo
 flowchart TD
   PDF[PDF] --> GROBID[GROBID]
   GROBID --> FILL[PDF Info / filename fill-in]
-  FILL --> DOI{DOI available?}
+  FILL --> DOI{Usable DOI?}
   DOI -->|yes| BIB[BibTeX from doi.org]
   DOI -->|no| XR[Crossref search]
   XR --> DOI2{DOI found?}

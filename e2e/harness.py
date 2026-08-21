@@ -452,7 +452,8 @@ def classify_bib(bibtex: str, convert_source: str, pdf_path: Path | None = None)
     # Fields may be single-line or multi-line; do not require start-of-line only.
     has_file = bool(re.search(r"(?i)\bfile\s*=", bibtex))
     has_doi = bool(re.search(r"(?i)\bdoi\s*=", bibtex))
-    has_title = bool(re.search(r"(?i)\btitle\s*=", bibtex))
+    title_value = pdf2zotero.bibtex_field_value(bibtex, "title")
+    has_title = bool(title_value)
     m = re.search(r"(?m)^@(\w+)\{([^,]+),", bibtex.strip())
     if not m:
         m = re.search(r"@(\w+)\{([^,]+),", bibtex)
@@ -476,6 +477,7 @@ def classify_bib(bibtex: str, convert_source: str, pdf_path: Path | None = None)
         "has_at_entry": has_at,
         "has_file_field": has_file,
         "has_doi_field": has_doi,
+        "has_title": has_title,
         "entry_type": entry_type,
         "citation_key": key,
         "looks_empty_metadata": looks_empty,
@@ -485,10 +487,12 @@ def classify_bib(bibtex: str, convert_source: str, pdf_path: Path | None = None)
 
 
 def is_valid_result(meta: dict, convert_source: str) -> bool:
-    """A valid conversion: BibTeX entry + exact PDF file field; DOI path needs doi field."""
+    """Valid conversion: BibTeX identity (title) + exact PDF file field; DOI path needs doi."""
     if not meta.get("has_at_entry"):
         return False
     if not meta.get("has_file_field") or not meta.get("file_field_exact"):
+        return False
+    if not meta.get("has_title"):
         return False
     if "DOI metadata" in (convert_source or ""):
         if not meta.get("has_doi_field"):
