@@ -50,7 +50,7 @@ CLI_EPILOG = (
 TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
 # DOI suffix may include punctuation; strip only unbalanced/trailing noise in clean_doi.
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
-USER_AGENT = "pdf2zotero/1.2 (https://github.com/jensabrahamsson/pdf2zotero)"
+USER_AGENT = "pdf2zotero/1.3 (https://github.com/jensabrahamsson/pdf2zotero)"
 CROSSREF_WORKS_URL = "https://api.crossref.org/v1/works"
 # Crossref match: reject weak hits (reviews/book chapters that only mention the title).
 CROSSREF_MIN_SCORE = 20.0
