@@ -1,11 +1,11 @@
-# import-to-zotero.ps1 — Convert PDFs with pdf2zotero and open the .bib in Zotero (Windows).
+# import-to-zotero.ps1 - Convert PDFs with pdf2zotero and open the .bib in Zotero (Windows).
 #
 # Usage:
 #   .\scripts\import-to-zotero.ps1 file.pdf [file2.pdf ...]
 #   .\scripts\import-to-zotero.ps1 -Install     # SendTo shortcut "Import to Zotero"
 #
 # Does the same conversion as pdf2zotero.py, then opens each .bib with Zotero
-# (the same File → Import path as the official docs). Still verify the PDF child.
+# (the same File -> Import path as the official docs). Still verify the PDF child.
 #
 # If execution policy blocks the script:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\import-to-zotero.ps1 paper.pdf
@@ -49,14 +49,14 @@ function Write-WarnMsg {
 function Show-Usage {
     param([int]$ExitCode = 0)
     $lines = @(
-        "import-to-zotero.ps1 — Convert PDFs and open the .bib in Zotero (Windows).",
+        "import-to-zotero.ps1 - Convert PDFs and open the .bib in Zotero (Windows).",
         "",
         "Usage:",
         "  .\scripts\import-to-zotero.ps1 file.pdf [file2.pdf ...]",
         "  .\scripts\import-to-zotero.ps1 -Install",
         "",
         "Starts Docker Desktop and GROBID if needed, runs pdf2zotero.py, then opens",
-        "each .bib with Zotero (File → Import). Verify the PDF child attachment.",
+        "each .bib with Zotero (File -> Import). Verify the PDF child attachment.",
         "",
         "If execution policy blocks the script:",
         "  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\import-to-zotero.ps1 paper.pdf"
@@ -108,7 +108,7 @@ function Install-SendToShortcut {
     $shortcut.Description = "Convert PDF with pdf2zotero and open the .bib in Zotero"
     $shortcut.Save()
     Write-Step "Installed SendTo shortcut: $lnkPath"
-    Write-Host "Right-click a PDF → Show more options → Send to → Import to Zotero."
+    Write-Host "Right-click a PDF -> Show more options -> Send to -> Import to Zotero."
 }
 
 if ($Install) {
@@ -237,11 +237,11 @@ function Open-Zotero {
         return $true
     }
     if ($BibPath) {
-        Write-WarnMsg "Zotero.exe not found; opening the .bib with the default app. Prefer File → Import… in Zotero."
+        Write-WarnMsg "Zotero.exe not found; opening the .bib with the default app. Prefer File -> Import... in Zotero."
         Start-Process -FilePath $BibPath | Out-Null
         return $false
     }
-    Write-WarnMsg "Zotero.exe not found. Open Zotero yourself, then File → Import… the .bib."
+    Write-WarnMsg "Zotero.exe not found. Open Zotero yourself, then File -> Import... the .bib."
     return $false
 }
 

@@ -1,4 +1,4 @@
-# setup-grobid.ps1 — start or remove the GROBID Docker service for pdf2zotero (Windows).
+# setup-grobid.ps1 - start or remove the GROBID Docker service for pdf2zotero (Windows).
 #
 # Default image matches PREREQUISITES.md / GROBID Docker guide:
 #   grobid/grobid:0.9.0-crf  (use -Full for 0.9.0-full)
@@ -45,7 +45,7 @@ function Die {
 function Show-Usage {
     param([int]$ExitCode = 0)
     $lines = @(
-        "setup-grobid.ps1 — start or remove the GROBID Docker service for pdf2zotero (Windows).",
+        "setup-grobid.ps1 - start or remove the GROBID Docker service for pdf2zotero (Windows).",
         "",
         "Default image matches PREREQUISITES.md / GROBID Docker guide:",
         "  grobid/grobid:0.9.0-crf  (use -Full for 0.9.0-full)",
@@ -58,7 +58,7 @@ function Show-Usage {
         "  .\scripts\setup-grobid.ps1 down         # stop/remove container only",
         "  .\scripts\setup-grobid.ps1 purge        # stop container + delete GROBID images",
         "",
-        "Aliases: start/setup → up; stop → down; remove/clean → purge",
+        "Aliases: start/setup -> up; stop -> down; remove/clean -> purge",
         "Flags:   -Full / --full, -Crf / --crf; -Port / --port N; -Name / --name; -Image / --image",
         "Note:    Explicit -Image / --image wins over -Full / -Crf when both are set.",
         "",
@@ -224,11 +224,11 @@ function Invoke-Status {
         Write-Host "  (not present)"
     }
 
-    Write-Host -NoNewline "HTTP :${Port}/api/isalive → "
+    Write-Host -NoNewline "HTTP :${Port}/api/isalive -> "
     if (Test-GrobidAlive) {
         $alive = Get-HttpText -Url "http://127.0.0.1:${Port}/api/isalive"
         Write-Host $alive
-        Write-Host -NoNewline "version → "
+        Write-Host -NoNewline "version -> "
         $ver = Get-HttpText -Url "http://127.0.0.1:${Port}/api/version"
         if ($ver) { Write-Host $ver } else { Write-Host "" }
     } else {
@@ -254,19 +254,19 @@ function Invoke-Status {
 function Invoke-Up {
     Test-DockerAvailable
     Write-Host "Using image: $Image"
-    Write-Host "Pulling (first time can be large)…"
+    Write-Host "Pulling (first time can be large)..."
     & docker pull $Image
     if ($LASTEXITCODE -ne 0) { Die "docker pull failed for $Image" }
 
     if (Test-ContainerExists -ContainerName $Name) {
-        Write-Host "Removing existing container '${Name}'…"
+        Write-Host "Removing existing container '${Name}'..."
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         $null = & docker rm -f $Name
         $ErrorActionPreference = $prev
     }
 
-    Write-Host "Starting named container '${Name}' on port ${Port}…"
+    Write-Host "Starting named container '${Name}' on port ${Port}..."
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     $null = & docker run -d --name $Name --init --ulimit core=0 -p "${Port}:8070" $Image
@@ -275,7 +275,7 @@ function Invoke-Up {
     if (-not $runOk) { Die "docker run failed for container '${Name}'" }
 
     $maxSec = $WaitAttempts * $WaitSleep
-    Write-Host "Waiting for GROBID to become alive (up to ~${maxSec}s)…"
+    Write-Host "Waiting for GROBID to become alive (up to ~${maxSec}s)..."
     for ($j = 1; $j -le $WaitAttempts; $j++) {
         if (Test-GrobidAlive) {
             Write-Host "GROBID is up: http://127.0.0.1:${Port}/api/isalive"
@@ -283,7 +283,7 @@ function Invoke-Up {
             if ($ver) { Write-Host $ver }
             return
         }
-        Write-Host ("  attempt {0}/{1}…" -f $j, $WaitAttempts)
+        Write-Host ("  attempt {0}/{1}..." -f $j, $WaitAttempts)
         Start-Sleep -Seconds $WaitSleep
     }
 
@@ -307,7 +307,7 @@ function Invoke-Down {
 
 function Invoke-Purge {
     Invoke-Down
-    Write-Host "Removing GROBID Docker images…"
+    Write-Host "Removing GROBID Docker images..."
 
     $known = @(
         $ImageCrf
