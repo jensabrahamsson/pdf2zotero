@@ -36,6 +36,20 @@ def _multipart(fields: dict[str, tuple[str | None, bytes]], boundary: str = "---
 
 
 class HelperTests(unittest.TestCase):
+    def test_upload_basename_windows_and_posix(self):
+        self.assertEqual(webui.upload_basename(r"C:\Users\Ada\paper.pdf"), "paper.pdf")
+        self.assertEqual(webui.upload_basename("/tmp/folder/paper.pdf"), "paper.pdf")
+        self.assertEqual(webui.upload_basename("paper.pdf"), "paper.pdf")
+        self.assertEqual(webui.upload_basename(""), "upload.pdf")
+
+    def test_safe_filename_strips_windows_path_and_reserved(self):
+        self.assertEqual(
+            webui.safe_filename(r"C:\Users\Ada\My Paper.pdf"),
+            "My Paper.pdf",
+        )
+        self.assertTrue(webui.safe_filename("CON.pdf").lower().startswith("upload-"))
+        self.assertTrue(webui.safe_filename("aux.PDF").lower().startswith("upload-"))
+
     def test_parse_bool_token(self):
         self.assertTrue(webui.parse_bool_token("true"))
         self.assertFalse(webui.parse_bool_token("0"))

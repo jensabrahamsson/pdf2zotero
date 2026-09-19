@@ -836,7 +836,7 @@ def crossref_find_doi(metadata: Metadata, timeout: int) -> tuple[str, str]:
     params: dict[str, str] = {
         "query.bibliographic": query,
         "rows": "8",
-        "select": "DOI,title,author,type,score,published-print,published-online",
+        "select": "DOI,title,author,type,score,published-print,published-online,published,issued",
     }
     # Bias Crossref toward the expected genre.
     if metadata.entry_type == "book":
@@ -1061,10 +1061,37 @@ def encode_zotero_file_path(path: str) -> str:
     return clean.replace("\\", "\\\\").replace(":", r"\:").replace(";", r"\;")
 
 
+def looks_like_windows_abs_path(path: str) -> bool:
+    """True for drive-letter or UNC paths (so ``\\`` is a separator, not a filename char)."""
+    if re.match(r"^[A-Za-z]:[\\/]", path or ""):
+        return True
+    if (path or "").startswith("\\\\") or (path or "").startswith("//"):
+        return True
+    return False
+
+
+def absolute_posix_path(pdf_path: Path) -> str:
+    """Absolute path with forward slashes (POSIX form, including Windows drives)."""
+    return pdf_path.resolve().as_posix()
+
+
+def format_zotero_file_value(absolute_path: str) -> str:
+    """JabRef/Zotero file field from an absolute path string (any OS separators).
+
+    Windows drive/UNC paths are rewritten with ``/`` so separators never hit
+    ``bib_escape``. Drive-letter colons (and macOS POSIX colons from ``/`` in
+    folder names) are escaped as ``\\:`` — unescaped ``C:/…`` is split by
+    Zotero/JabRef. POSIX filenames may contain ``\\``; those stay and are doubled.
+    """
+    path = absolute_path or ""
+    if looks_like_windows_abs_path(path):
+        path = path.replace("\\", "/")
+    return f":{encode_zotero_file_path(path)}:application/pdf"
+
+
 def zotero_file_field(pdf_path: Path) -> str:
     """JabRef/Zotero file attachment value: :/abs/path:application/pdf"""
-    path_str = str(pdf_path.resolve())
-    return f":{encode_zotero_file_path(path_str)}:application/pdf"
+    return format_zotero_file_value(absolute_posix_path(pdf_path))
 
 
 def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:

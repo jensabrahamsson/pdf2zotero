@@ -4,6 +4,7 @@
 
 > **New here?**  
 > 1. **[PREREQUISITES.md](PREREQUISITES.md)** — Python, Docker/Colima, GROBID, Zotero  
+>    (Windows: [Windows install order](PREREQUISITES.md#windows-install-order) + `scripts/setup-grobid.ps1`)  
 > 2. **[GETTING_STARTED.md](GETTING_STARTED.md)** — convert → import into Zotero → attach PDF  
 
 Metadata extraction is only a step. The goal is the Zotero library:
@@ -26,8 +27,8 @@ Parse the PDF and look up the best metadata are two different problems; **landin
 
 | Doc | Contents |
 |-----|----------|
-| **[PREREQUISITES.md](PREREQUISITES.md)** | Python, Docker **or** Colima, GROBID, Zotero — install in order |
-| **[GETTING_STARTED.md](GETTING_STARTED.md)** | Convert PDFs and import into Zotero (CLI, web UI, macOS helper) |
+| **[PREREQUISITES.md](PREREQUISITES.md)** | Python, Docker **or** Colima, GROBID, Zotero — install in order (macOS/Linux primary; [Windows section](PREREQUISITES.md#windows-install-order)) |
+| **[GETTING_STARTED.md](GETTING_STARTED.md)** | Convert PDFs and import into Zotero (CLI, web UI, macOS helper, Windows helper) |
 | **[GUIDE.md](GUIDE.md)** | Architecture, design rationale, diagrams |
 | **[e2e/README.md](e2e/README.md)** | Open-access corpus + batch e2e harness (hundreds of PDFs) |
 | **[AGENTS.md](AGENTS.md)** | Conventions for AI coding agents |
@@ -102,9 +103,22 @@ python3 webui.py
 # ./scripts/import-to-zotero.sh --install   # Finder Quick Action
 ```
 
+**Windows:** install order and GROBID helper are in  
+[PREREQUISITES → Windows](PREREQUISITES.md#windows-install-order) (`.\scripts\setup-grobid.ps1 up`).  
+Use `python` or `py -3` (stock installs often lack `python3`):
+
+```powershell
+git clone https://github.com/jensabrahamsson/pdf2zotero.git
+cd pdf2zotero
+.\scripts\setup-grobid.ps1 up
+python pdf2zotero.py artikel.pdf
+# or: python webui.py
+# or: .\scripts\import-to-zotero.ps1 artikel.pdf
+```
+
 Then in Zotero: **File → Import… → A file** → choose the `.bib`.  
-The macOS helper already opens that file in Zotero. If there is no PDF under the item, drag the PDF onto it.  
-Walkthrough: [GETTING_STARTED.md](GETTING_STARTED.md#path-c-macos-convert-and-open-in-zotero).
+The macOS/Windows helpers already open that file in Zotero. If there is no PDF under the item, drag the PDF onto it.  
+Walkthrough: [GETTING_STARTED.md](GETTING_STARTED.md#path-c-macos-convert-and-open-in-zotero) (macOS) and [Path D](GETTING_STARTED.md#path-d-windows-convert-and-open-in-zotero) (Windows).
 
 ```mermaid
 flowchart LR
@@ -147,13 +161,14 @@ Works for **articles, books, and reports**. Local fallbacks use `@article`, `@bo
 ## Prerequisites
 
 **Full install instructions (Python, Docker or Colima, GROBID, Zotero):**  
-→ **[PREREQUISITES.md](PREREQUISITES.md)**
+→ **[PREREQUISITES.md](PREREQUISITES.md)**  
+→ **Windows:** [PREREQUISITES → Windows install order](PREREQUISITES.md#windows-install-order)
 
 | | Requirement |
 |--|-------------|
-| Python | 3.9+ floor (recommend 3.11–3.14; 3.9 is EOL) — `python3 --version` |
-| Containers | Docker Desktop **or** Colima + Docker CLI |
-| GROBID | `./scripts/setup-grobid.sh up` then `curl -s http://localhost:8070/api/isalive` (see [PREREQUISITES.md](PREREQUISITES.md)) |
+| Python | 3.9+ floor (recommend 3.11–3.14; 3.9 is EOL) — `python3 --version` (Windows: `python` / `py -3`) |
+| Containers | Docker Desktop **or** Colima + Docker CLI (Windows: Docker Desktop only) |
+| GROBID | `./scripts/setup-grobid.sh up` then `curl -s http://localhost:8070/api/isalive` (Windows: `.\scripts\setup-grobid.ps1 up` + `curl.exe`; see [PREREQUISITES.md](PREREQUISITES.md)) |
 | Zotero | [Desktop app](https://www.zotero.org/download/) for library import |
 | Network | doi.org + Crossref (optional with `--no-doi-lookup`; does not block remote GROBID) |
 
@@ -199,12 +214,29 @@ Default: write `name.bib` next to `name.pdf`.
 
 Starts Docker, GROBID, and Zotero if needed, runs `pdf2zotero.py`, then opens each `.bib` with Zotero ([File → Import](https://www.zotero.org/support/kb/importing_standardized_formats)). Still verify the PDF child attachment. Full steps: [GETTING_STARTED Path C](GETTING_STARTED.md#path-c-macos-convert-and-open-in-zotero).
 
+### Windows convert-and-import helper
+
+```powershell
+.\scripts\import-to-zotero.ps1 artikel.pdf
+.\scripts\import-to-zotero.ps1 a.pdf b.pdf
+.\scripts\import-to-zotero.ps1 -Install
+```
+
+| Argument | Description |
+|----------|-------------|
+| `pdfs` | One or more PDF files (same conversion as the CLI) |
+| `-Install` | Write a **Send to** shortcut **Import to Zotero** |
+
+Starts Docker Desktop and GROBID if needed, runs `pdf2zotero.py`, then opens each `.bib` with Zotero. Full steps: [GETTING_STARTED Path D](GETTING_STARTED.md#path-d-windows-convert-and-open-in-zotero).
+
 ### Web UI
 
 ```bash
 python3 webui.py
 # http://127.0.0.1:8765/
 ```
+
+Windows: `python webui.py` (same flags). Default output is `%USERPROFILE%\Downloads\pdf2zotero`.
 
 | Option | Description |
 |--------|-------------|
@@ -227,7 +259,7 @@ python3 webui.py
 
 ## Into Zotero (the actual goal)
 
-The CLI and web UI do **not** push into Zotero automatically. You finish with Zotero’s own UI, as documented by Zotero. On macOS, `scripts/import-to-zotero.sh` converts and opens the `.bib` in Zotero (same import):
+The CLI and web UI do **not** push into Zotero automatically. You finish with Zotero’s own UI, as documented by Zotero. On macOS, `scripts/import-to-zotero.sh` converts and opens the `.bib` in Zotero; on Windows, `scripts/import-to-zotero.ps1` does the same (same import):
 
 - [Import BibTeX / standardized formats](https://www.zotero.org/support/kb/importing_standardized_formats) — **File → Import… → A file**  
 - [Adding items](https://www.zotero.org/support/adding_items_to_zotero) — items vs PDFs  
@@ -239,7 +271,7 @@ Among Zotero’s import formats (BibTeX, BibLaTeX, RIS, CSL JSON, Zotero RDF, MO
 
 1. **File → Import… → A file** accepts it ([docs](https://www.zotero.org/support/kb/importing_standardized_formats))  
 2. doi.org returns BibTeX via content negotiation  
-3. We include `file = {:/abs/path:application/pdf}` as a *hint* for the PDF path. Colons and semicolons in the path are escaped (`\:` / `\;`) so Zotero does not split the record (typical on macOS when a folder name contains `/`). The value is not passed through LaTeX `bib_escape`.  
+3. We include `file = {:/abs/path:application/pdf}` as a *hint* for the PDF path. Colons and semicolons in the path are escaped (`\:` / `\;`) so Zotero does not split the record (typical on macOS when a folder name contains `/`, and on Windows for the drive letter `C:`). Path separators are written as `/` (`as_posix()`), so Windows `C:\…` becomes `C\:/…`. The value is not passed through LaTeX `bib_escape`.  
 4. Plain text — easy to inspect before import  
 
 The `.bib` import creates the **parent item**. The **PDF** is a separate file attachment step if import did not attach it.
@@ -259,7 +291,7 @@ The `.bib` import creates the **parent item**. The **PDF** is a separate file at
 
 6. Select the new parent item.  
 7. If a PDF child is already listed under it → stop; you are done.  
-8. Otherwise open Finder and locate the `.pdf`.  
+8. Otherwise open **Finder** (macOS), **File Explorer** (Windows), or your file manager (Linux) and locate the `.pdf`.  
 9. Drag the PDF and **drop it onto the parent item** in Zotero’s middle pane.  
 10. Expand the item and double-click the PDF to verify.
 
@@ -275,8 +307,10 @@ Full click-path and success checklist:
 - Crossref may mis-pick a work if the title is very generic — check the `.bib` before import.  
 - BibTeX `file` import is not always honoured by every Zotero version/setting; dragging the PDF onto the item always works.  
 - Folder names with `/` become `:` in macOS POSIX paths; pdf2zotero escapes those in `file`. Re-convert older `.bib` files if an import dropped the PDF.  
+- Windows `file` fields look like `{:C\:/Users/…/paper.pdf:application/pdf}` (forward slashes, escaped drive colon).  
 - With no usable metadata the entry may be almost empty (still with a `file` field).  
 - `scripts/import-to-zotero.sh` is macOS-only (Docker/GROBID/Zotero autostart + Finder Quick Action).  
+- `scripts/import-to-zotero.ps1` is Windows-only (Docker Desktop/GROBID/Zotero autostart + SendTo shortcut).  
 
 ## Troubleshooting
 
@@ -285,11 +319,13 @@ Full click-path and success checklist:
 | `Could not contact GROBID` | Start GROBID; wait; check `--grobid-url` |
 | Web UI: GROBID offline | Same |
 | `.bib` is tiny / `unknown…` | Bad parse; try text-layer PDF; ensure network for Crossref |
-| Import OK, **no PDF** | Drag PDF onto the item; if a folder name had `/`, re-convert so `file` contains `\:` |
-| `Ingen PDF-fil angiven` | Pass PDF paths to `scripts/import-to-zotero.sh`, or `--install` |
-| `command not found: pdf2zotero` | Use `python3 pdf2zotero.py` or PATH symlink |
+| Import OK, **no PDF** | Drag PDF onto the item; if a folder name had `/`, re-convert so `file` contains `\:`. On Windows confirm `C\:/` not raw `C:` |
+| `Ingen PDF-fil angiven` / `no PDF file given` | Pass PDF paths to `scripts/import-to-zotero.sh` or `scripts/import-to-zotero.ps1`, or `--install` / `-Install` |
+| `command not found: pdf2zotero` | Use `python3 pdf2zotero.py` or PATH symlink (Windows: `python pdf2zotero.py`) |
 | Port 8765 in use | `python3 webui.py --port 8766` |
 | Web UI will not open | `--no-browser` and open `http://127.0.0.1:8765/` manually |
+| Windows: `python3` missing | Use `python` or `py -3` ([PREREQUISITES — Windows](PREREQUISITES.md#windows-install-order)) |
+| Windows: cannot run `.ps1` | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-grobid.ps1 up` |
 
 Step-by-step recovery: [GETTING_STARTED.md → Troubleshooting](GETTING_STARTED.md#troubleshooting).
 

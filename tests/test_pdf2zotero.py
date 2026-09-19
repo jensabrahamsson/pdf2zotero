@@ -227,31 +227,37 @@ class NormalizeTitleAndNamesTests(unittest.TestCase):
 
 
 class AttachFileTests(unittest.TestCase):
+    def _touch_pdf(self, directory: str, name: str = "example.pdf") -> Path:
+        pdf = Path(directory) / name
+        pdf.write_bytes(b"%PDF-1.4")
+        return pdf
+
     def test_replace_brace_and_quote_forms(self):
-        pdf = Path("/tmp/example.pdf")
-        field = pdf2zotero.zotero_file_field(pdf)
-        brace = "@article{x,\n  file = {:/old.pdf:application/pdf}\n}\n"
-        quote = '@article{x,\n  file = ":/old.pdf:application/pdf"\n}\n'
-        out_b = pdf2zotero.attach_file_to_bibtex(brace, pdf)
-        out_q = pdf2zotero.attach_file_to_bibtex(quote, pdf)
-        self.assertIn(field, out_b)
-        self.assertNotIn("/old.pdf", out_b)
-        self.assertIn(field, out_q)
-        self.assertNotIn("/old.pdf", out_q)
+        with tempfile.TemporaryDirectory() as td:
+            pdf = self._touch_pdf(td)
+            field = pdf2zotero.zotero_file_field(pdf)
+            brace = "@article{x,\n  file = {:/old.pdf:application/pdf}\n}\n"
+            quote = '@article{x,\n  file = ":/old.pdf:application/pdf"\n}\n'
+            out_b = pdf2zotero.attach_file_to_bibtex(brace, pdf)
+            out_q = pdf2zotero.attach_file_to_bibtex(quote, pdf)
+            self.assertIn(field, out_b)
+            self.assertNotIn("/old.pdf", out_b)
+            self.assertIn(field, out_q)
+            self.assertNotIn("/old.pdf", out_q)
 
     def test_insert_when_missing(self):
-        pdf = Path("/tmp/example.pdf")
-        bib = "@article{x,\n  title = {Hello}\n}\n"
-        out = pdf2zotero.attach_file_to_bibtex(bib, pdf)
-        self.assertIn("file = {", out)
-        self.assertIn(pdf2zotero.zotero_file_field(pdf), out)
+        with tempfile.TemporaryDirectory() as td:
+            pdf = self._touch_pdf(td)
+            bib = "@article{x,\n  title = {Hello}\n}\n"
+            out = pdf2zotero.attach_file_to_bibtex(bib, pdf)
+            self.assertIn("file = {", out)
+            self.assertIn(pdf2zotero.zotero_file_field(pdf), out)
 
     def test_escapes_colons_and_semicolons_in_path(self):
         # On macOS, slashes in folder names (e.g. "Masteruppsatsen 26/27") appear as colons in POSIX paths.
-        pdf = Path("/tmp/folder 26:27/semi;colon/doc.pdf")
-        resolved = str(pdf.resolve())
-        field = pdf2zotero.zotero_file_field(pdf)
-        inner = pdf2zotero.encode_zotero_file_path(resolved)
+        posix = "/tmp/folder 26:27/semi;colon/doc.pdf"
+        field = pdf2zotero.format_zotero_file_value(posix)
+        inner = pdf2zotero.encode_zotero_file_path(posix)
         self.assertEqual(field, f":{inner}:application/pdf")
         self.assertIn(r"26\:27", field)
         self.assertIn(r"semi\;colon", field)
@@ -259,42 +265,47 @@ class AttachFileTests(unittest.TestCase):
         self.assertTrue(field.startswith(":"))
         self.assertTrue(field.endswith(":application/pdf"))
 
+        dummy = Path("dummy.pdf")
         brace = "@article{x,\n  file = {:/old.pdf:application/pdf}\n}\n"
         quote = '@article{x,\n  file = ":/old.pdf:application/pdf"\n}\n'
-        out_b = pdf2zotero.attach_file_to_bibtex(brace, pdf)
-        out_q = pdf2zotero.attach_file_to_bibtex(quote, pdf)
+        with mock.patch.object(pdf2zotero, "zotero_file_field", return_value=field):
+            out_b = pdf2zotero.attach_file_to_bibtex(brace, dummy)
+            out_q = pdf2zotero.attach_file_to_bibtex(quote, dummy)
+            inserted = pdf2zotero.attach_file_to_bibtex(
+                "@article{x,\n  title = {Hello}\n}\n", dummy
+            )
         self.assertIn(f"file = {{{field}}}", out_b)
         self.assertIn(f'file = "{field}"', out_q)
         self.assertNotIn("/old.pdf", out_b)
         self.assertNotIn("/old.pdf", out_q)
         self.assertNotIn(r"\textbackslash{}", out_b)
         self.assertNotIn(r"\textbackslash{}", out_q)
-
-        inserted = pdf2zotero.attach_file_to_bibtex(
-            "@article{x,\n  title = {Hello}\n}\n", pdf
-        )
         self.assertIn(f"file = {{{field}}}", inserted)
         self.assertNotIn(r"\textbackslash{}", inserted)
 
-        meta = pdf2zotero.Metadata(title="Test Book & Co", entry_type="book")
-        fb = pdf2zotero.fallback_bibtex(meta, pdf)
-        self.assertIn(f"file = {{{field}}}", fb)
-        self.assertNotIn(r"\textbackslash{}", fb)
-        self.assertIn(r"Test Book \& Co", fb)
+        with tempfile.TemporaryDirectory() as td:
+            pdf = self._touch_pdf(td, "doc.pdf")
+            meta = pdf2zotero.Metadata(title="Test Book & Co", entry_type="book")
+            fb = pdf2zotero.fallback_bibtex(meta, pdf)
+            self.assertIn(f"file = {{{pdf2zotero.zotero_file_field(pdf)}}}", fb)
+            self.assertNotIn(r"\textbackslash{}", fb)
+            self.assertIn(r"Test Book \& Co", fb)
 
     def test_replace_preserves_doubled_backslashes(self):
         # re.sub string templates collapse \\; brace/quoted replace must keep encoder doubling.
-        pdf = Path(r"/tmp/folder 26:27/semi;colon/weird\name.pdf")
-        field = pdf2zotero.zotero_file_field(pdf)
+        posix = r"/tmp/folder 26:27/semi;colon/weird\name.pdf"
+        field = pdf2zotero.format_zotero_file_value(posix)
         self.assertIn(r"26\:27", field)
         self.assertIn(r"semi\;colon", field)
         self.assertIn(r"weird\\name.pdf", field)
         self.assertNotIn(r"\textbackslash{}", field)
 
+        dummy = Path("dummy.pdf")
         brace = "@article{x,\n  file = {:/old.pdf:application/pdf}\n}\n"
         quote = '@article{x,\n  file = ":/old.pdf:application/pdf"\n}\n'
-        out_b = pdf2zotero.attach_file_to_bibtex(brace, pdf)
-        out_q = pdf2zotero.attach_file_to_bibtex(quote, pdf)
+        with mock.patch.object(pdf2zotero, "zotero_file_field", return_value=field):
+            out_b = pdf2zotero.attach_file_to_bibtex(brace, dummy)
+            out_q = pdf2zotero.attach_file_to_bibtex(quote, dummy)
         self.assertIn(f"file = {{{field}}}", out_b)
         self.assertIn(f'file = "{field}"', out_q)
         self.assertIn(r"weird\\name.pdf", out_b)
@@ -303,6 +314,20 @@ class AttachFileTests(unittest.TestCase):
         self.assertNotIn(r"\textbackslash{}", out_q)
         self.assertNotIn("/old.pdf", out_b)
         self.assertNotIn("/old.pdf", out_q)
+
+    def test_resolved_file_field_uses_posix_separators(self):
+        with tempfile.TemporaryDirectory() as td:
+            pdf = self._touch_pdf(td, "paper.pdf")
+            field = pdf2zotero.zotero_file_field(pdf)
+            self.assertNotIn("\\", field.replace(r"\:", "").replace(r"\;", ""))
+            self.assertTrue(field.startswith(":"))
+            self.assertTrue(field.endswith(":application/pdf"))
+            self.assertIn("/paper.pdf", field)
+            out = pdf2zotero.attach_file_to_bibtex(
+                "@article{x,\n  title = {Hello}\n}\n", pdf
+            )
+            self.assertNotIn(r"\textbackslash{}", out)
+            self.assertIn(f"file = {{{field}}}", out)
 
 
 class EncodeZoteroFilePathTests(unittest.TestCase):
@@ -321,15 +346,49 @@ class EncodeZoteroFilePathTests(unittest.TestCase):
         self.assertNotIn(r"\textbackslash{}", encoded)
 
     def test_zotero_file_field_strips_braces_without_latex(self):
-        pdf = Path("/tmp/x{y}z.pdf")
-        field = pdf2zotero.zotero_file_field(pdf)
-        self.assertIn("xyz.pdf", field)
-        self.assertNotIn("{", field)
-        self.assertNotIn("}", field)
+        with tempfile.TemporaryDirectory() as td:
+            pdf = Path(td) / "xyz.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            field = pdf2zotero.zotero_file_field(pdf)
+            self.assertIn("xyz.pdf", field)
+            self.assertNotIn("{", field)
+            self.assertNotIn("}", field)
+            self.assertNotIn(r"\textbackslash{}", field)
+            self.assertEqual(
+                field,
+                pdf2zotero.format_zotero_file_value(pdf.resolve().as_posix()),
+            )
+
+    def test_windows_drive_letter_colon_is_escaped(self):
+        field = pdf2zotero.format_zotero_file_value(r"C:\Users\Ada\paper.pdf")
+        self.assertEqual(field, r":C\:/Users/Ada/paper.pdf:application/pdf")
         self.assertNotIn(r"\textbackslash{}", field)
+        # Unescaped C:/ would be split into extra JabRef segments.
+        self.assertNotRegex(field, r"(?m)^:C:/")
+        dummy = Path("dummy.pdf")
+        with mock.patch.object(pdf2zotero, "zotero_file_field", return_value=field):
+            out = pdf2zotero.attach_file_to_bibtex(
+                "@article{x,\n  title = {Hello}\n}\n", dummy
+            )
+        self.assertIn(f"file = {{{field}}}", out)
+        self.assertNotIn(r"\textbackslash{}", out)
+
+    def test_windows_mixed_separators_and_unc(self):
+        field = pdf2zotero.format_zotero_file_value(r"C:\Users/Ada\paper.pdf")
+        self.assertEqual(field, r":C\:/Users/Ada/paper.pdf:application/pdf")
+        unc = pdf2zotero.format_zotero_file_value(r"\\server\share\paper.pdf")
+        self.assertEqual(unc, r"://server/share/paper.pdf:application/pdf")
+
+    def test_posix_path_unchanged_except_delimiters(self):
         self.assertEqual(
-            field,
-            f":{pdf2zotero.encode_zotero_file_path(str(pdf.resolve()))}:application/pdf",
+            pdf2zotero.format_zotero_file_value("/tmp/example.pdf"),
+            ":/tmp/example.pdf:application/pdf",
+        )
+
+    def test_empty_path_is_degenerate_but_shaped(self):
+        self.assertEqual(
+            pdf2zotero.format_zotero_file_value(""),
+            "::application/pdf",
         )
 
 
@@ -592,6 +651,7 @@ class OfflineAndNetworkMockTests(unittest.TestCase):
             attempts["n"] += 1
             url = getattr(req, "full_url", "")
             self.assertIn("/v1/works", url)
+            self.assertIn("issued", url)
             if attempts["n"] == 1:
                 raise urllib.error.HTTPError(
                     url, 503, "Service Unavailable", hdrs=None, fp=None

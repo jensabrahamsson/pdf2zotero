@@ -17,6 +17,7 @@ PDFs are **not** committed to git. Cache: `e2e/corpus/` (gitignored).
 
 ```bash
 # GROBID must be up: curl -s http://localhost:8070/api/isalive
+# Windows: curl.exe -s http://127.0.0.1:8070/api/isalive
 
 python3 e2e/harness.py probe
 python3 e2e/harness.py smoke --scratch /path/to/scratch
@@ -28,6 +29,8 @@ python3 e2e/harness.py download --limit 250
 python3 e2e/harness.py run --limit 250
 python3 e2e/harness.py assess --scratch /path/to/scratch
 ```
+
+On Windows, invoke `python e2e/harness.py …` (or `py -3`) from the repo root. Scratch paths can be `%TEMP%\pdf2zotero-smoke`.
 
 ## Exit codes (fail-closed)
 

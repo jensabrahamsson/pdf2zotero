@@ -53,20 +53,42 @@ STATE: AppState | None = None
 
 def grobid_alive(grobid_url: str, timeout: int = 3) -> bool:
     url = grobid_url.rstrip("/") + "/api/isalive"
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": pdf2zotero.USER_AGENT},
+    )
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read().decode("utf-8", errors="replace").strip().lower()
             return body == "true" or "true" in body
     except (urllib.error.URLError, TimeoutError, OSError):
         return False
 
 
+# Windows device names cannot be used as a file stem (CON.pdf writes to the console).
+_WINDOWS_RESERVED_STEM = re.compile(
+    r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$",
+    re.IGNORECASE,
+)
+
+
+def upload_basename(name: str) -> str:
+    """Last path component for POSIX or Windows client filenames."""
+    # Browsers usually send a bare name; older clients may send a full Windows path.
+    # Path.name is OS-specific, so split on both separators.
+    cleaned = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return cleaned.strip() or "upload.pdf"
+
+
 def safe_filename(name: str) -> str:
-    name = Path(name).name
+    name = upload_basename(name)
     name = re.sub(r"[^\w.\- ()\[\]]+", "_", name, flags=re.UNICODE)
     name = name.strip(" ._") or "upload.pdf"
     if not name.lower().endswith(".pdf"):
         name += ".pdf"
+    stem = Path(name).stem
+    if _WINDOWS_RESERVED_STEM.match(stem):
+        name = f"upload-{stem}.pdf"
     return name
 
 
@@ -365,7 +387,8 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": False,
                     "error": str(exc),
                     "hint": (
-                        "Is GROBID running? Try: curl -s http://localhost:8070/api/isalive"
+                        "Is GROBID running? Try: curl -s http://127.0.0.1:8070/api/isalive "
+                        "(Windows: curl.exe -s http://127.0.0.1:8070/api/isalive)"
                     ),
                 },
             )

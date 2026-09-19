@@ -15,7 +15,7 @@ Core split of responsibility:
 1. **GROBID** — understand the PDF (TEI XML).  
 2. **doi.org / Crossref** — authoritative bibliographic record when a DOI exists.  
 3. **BibTeX + `file` field** — Zotero-importable package (metadata + path to PDF).  
-4. **Zotero** — library destination (user runs File → Import…, or on macOS `scripts/import-to-zotero.sh` opens the `.bib`).  
+4. **Zotero** — library destination (user runs File → Import…, or on macOS `scripts/import-to-zotero.sh` / on Windows `scripts/import-to-zotero.ps1` opens the `.bib`).  
 
 Install stack (Python, Docker/Colima, GROBID, Zotero): [`PREREQUISITES.md`](PREREQUISITES.md).  
 User walkthrough (convert → Zotero import → PDF attachment): [`GETTING_STARTED.md`](GETTING_STARTED.md).  
@@ -28,9 +28,9 @@ When running or documenting the tool, assume and verify:
 
 | Need | How to check |
 |------|----------------|
-| Python ≥ 3.9 (recommend 3.11/3.12) | `python3 --version` — shebang uses `env python3` |
-| Script executable bit | `chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh` when documenting install |
-| GROBID up | `curl -s http://localhost:8070/api/isalive` (or configured `--grobid-url`) |
+| Python ≥ 3.9 (recommend 3.11/3.12) | `python3 --version` — shebang uses `env python3` (Windows docs: `python` / `py -3`) |
+| Script executable bit | `chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh` when documenting Unix install |
+| GROBID up | `curl -s http://localhost:8070/api/isalive` (or configured `--grobid-url`); Windows: `.\scripts\setup-grobid.ps1` + `curl.exe` |
 | Optional doi.org | Network; skip with `--no-doi-lookup` in offline tests |
 | No pip deps | `requirements.txt` is intentionally empty (stdlib only). Do not add runtime PyPI packages unless the user explicitly accepts that trade-off |
 | GitHub repo name | **`pdf2zotero`** under `jensabrahamsson` — not `zotero` |
@@ -46,6 +46,7 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 - Always attach the local PDF with a Zotero-compatible `file` field:  
   `:{absolute_path}:application/pdf`  
   including after a successful DOI lookup. Escape `:` and `;` in the path (`\:` / `\;`); do not run the file value through LaTeX `bib_escape`.  
+  Paths must use **POSIX separators** (`as_posix()` / `format_zotero_file_value`) so Windows backslashes are not destroyed by `bib_escape`. Escape the Windows drive colon (`C\:`) — unescaped `C:` is a JabRef delimiter.  
 - Keep the public CLI stable unless the change is intentional and documented in `README.md`.  
 - License is **MIT** — do not switch license without an explicit user request.
 
@@ -55,12 +56,12 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 pdf2zotero.py      # CLI + conversion library
 webui.py           # local drag-and-drop HTTP UI (stdlib)
 webui_static/      # index.html, styles.css, app.js
-scripts/           # setup-grobid.sh / setup-grobid.ps1 (Docker GROBID); import-to-zotero.sh (macOS convert+open)
+scripts/           # setup-grobid.sh (macOS/Linux) / setup-grobid.ps1 (Windows); import-to-zotero.sh (macOS) / import-to-zotero.ps1 (Windows)
 tests/             # stdlib unittest (pdf2zotero + webui + import script entry points)
 e2e/               # live OA harness + harness unit tests
 requirements.txt   # intentionally empty (stdlib-only runtime)
 .github/           # workflows + dependabot.yml
-PREREQUISITES.md   # Python, Docker/Colima, GROBID, Zotero install
+PREREQUISITES.md   # Python, Docker/Colima, GROBID, Zotero install (+ Windows)
 GETTING_STARTED.md # convert + how material enters Zotero
 README.md          # overview + flag reference
 GUIDE.md           # architecture and design
