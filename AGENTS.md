@@ -29,7 +29,7 @@ When running or documenting the tool, assume and verify:
 | Need | How to check |
 |------|----------------|
 | Python ≥ 3.9 (recommend 3.11/3.12) | `python3 --version` — shebang uses `env python3` |
-| Script executable bit | `chmod +x pdf2zotero.py` when documenting install |
+| Script executable bit | `chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh` when documenting install |
 | GROBID up | `curl -s http://localhost:8070/api/isalive` (or configured `--grobid-url`) |
 | Optional doi.org | Network; skip with `--no-doi-lookup` in offline tests |
 | No pip deps | `requirements.txt` is intentionally empty (stdlib only). Do not add runtime PyPI packages unless the user explicitly accepts that trade-off |

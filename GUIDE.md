@@ -184,7 +184,7 @@ Each component does what it is best at:
 | **DOI / Crossref** | Authoritative bibliographic metadata |
 | **BibTeX file** | Zotero-supported import carrier ([formats list](https://www.zotero.org/support/kb/importing_standardized_formats)) |
 | **Zotero** | Library, attachments, cite, sync — the place material lives |
-| **CLI / web UI** | Local ways to produce the import file |
+| **CLI / web UI / macOS helper** | Local ways to produce the import file; `import-to-zotero.sh` also opens the `.bib` in Zotero |
 
 pdf2zotero is only the glue:
 
@@ -192,7 +192,7 @@ pdf2zotero is only the glue:
 - extract identifiers and fallback fields  
 - resolve DOI → BibTeX when possible  
 - link the local PDF for Zotero attachment on import  
-- expose that pipeline via **CLI** (`pdf2zotero.py`) or **local web UI** (`webui.py`)
+- expose that pipeline via **CLI** (`pdf2zotero.py`), **local web UI** (`webui.py`), or on macOS **`scripts/import-to-zotero.sh`** (starts Docker/GROBID/Zotero if needed, then opens the `.bib` — same `pdf2zotero.py` conversion)
 
 That keeps the solution small, easy to reason about, and robust when a PDF is hard to parse: a correct DOI still yields a clean **library** entry after import—not just a JSON blob of fields.
 
@@ -204,7 +204,7 @@ The architecture assumes these are available at runtime.
 | Layer | Prerequisite | Failure mode if missing |
 |-------|----------------|-------------------------|
 | Runtime | Python **3.9+** (recommend **3.11–3.14**; shebang `python3`) | Script does not start |
-| Executable | `chmod +x pdf2zotero.py` (optional `~/bin/pdf2zotero` symlink) | `Permission denied` / `command not found` |
+| Executable | `chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh` (optional `~/bin/pdf2zotero` symlink) | `Permission denied` / `command not found` |
 | PDF understanding | GROBID HTTP API | Hard error: cannot process PDF |
 | Hosting GROBID | Docker (or other GROBID install) | Same as above if nothing listens on the URL |
 | Authoritative metadata | HTTPS to **doi.org** (BibTeX) and **Crossref** (DOI search) | Warning + fallback to local BibTeX |

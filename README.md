@@ -27,7 +27,7 @@ Parse the PDF and look up the best metadata are two different problems; **landin
 | Doc | Contents |
 |-----|----------|
 | **[PREREQUISITES.md](PREREQUISITES.md)** | Python, Docker **or** Colima, GROBID, Zotero — install in order |
-| **[GETTING_STARTED.md](GETTING_STARTED.md)** | Convert PDFs and import into Zotero (after prerequisites) |
+| **[GETTING_STARTED.md](GETTING_STARTED.md)** | Convert PDFs and import into Zotero (CLI, web UI, macOS helper) |
 | **[GUIDE.md](GUIDE.md)** | Architecture, design rationale, diagrams |
 | **[e2e/README.md](e2e/README.md)** | Open-access corpus + batch e2e harness (hundreds of PDFs) |
 | **[AGENTS.md](AGENTS.md)** | Conventions for AI coding agents |
@@ -66,7 +66,7 @@ It does **not** replace Zotero, GROBID, or Crossref. It is glue so material **re
 
 ```mermaid
 flowchart TD
-  A[Start GROBID on this machine] --> B[Run pdf2zotero CLI or webui.py]
+  A[Start GROBID on this machine] --> B[Run pdf2zotero CLI, webui.py, or import-to-zotero.sh]
   B --> C["Write .bib with file = path to PDF"]
   C --> D["Zotero: File → Import → A file"]
   D --> E{PDF child under item?}
@@ -102,8 +102,9 @@ python3 webui.py
 # ./scripts/import-to-zotero.sh --install   # Finder Quick Action
 ```
 
-Then in Zotero: **File → Import… → A file** → choose the `.bib` (Path C already opens it).  
-If there is no PDF under the item, drag the PDF onto it.
+Then in Zotero: **File → Import… → A file** → choose the `.bib`.  
+The macOS helper already opens that file in Zotero. If there is no PDF under the item, drag the PDF onto it.  
+Walkthrough: [GETTING_STARTED.md](GETTING_STARTED.md#path-c-macos-convert-and-open-in-zotero).
 
 ```mermaid
 flowchart LR
@@ -191,7 +192,12 @@ Default: write `name.bib` next to `name.pdf`.
 ./scripts/import-to-zotero.sh --install
 ```
 
-Starts Docker, GROBID, and Zotero if needed, runs `pdf2zotero.py`, then opens each `.bib` with Zotero ([File → Import](https://www.zotero.org/support/kb/importing_standardized_formats)). `--install` adds a Finder Quick Action. Still verify the PDF child attachment.
+| Argument | Description |
+|----------|-------------|
+| `pdfs` | One or more PDF files (same conversion as the CLI) |
+| `--install` | Write Finder Quick Action **Importera till Zotero** under `~/Library/Services/` |
+
+Starts Docker, GROBID, and Zotero if needed, runs `pdf2zotero.py`, then opens each `.bib` with Zotero ([File → Import](https://www.zotero.org/support/kb/importing_standardized_formats)). Still verify the PDF child attachment. Full steps: [GETTING_STARTED Path C](GETTING_STARTED.md#path-c-macos-convert-and-open-in-zotero).
 
 ### Web UI
 
@@ -233,7 +239,7 @@ Among Zotero’s import formats (BibTeX, BibLaTeX, RIS, CSL JSON, Zotero RDF, MO
 
 1. **File → Import… → A file** accepts it ([docs](https://www.zotero.org/support/kb/importing_standardized_formats))  
 2. doi.org returns BibTeX via content negotiation  
-3. We include `file = {:/abs/path:application/pdf}` as a *hint* for the PDF path  
+3. We include `file = {:/abs/path:application/pdf}` as a *hint* for the PDF path. Colons and semicolons in the path are escaped (`\:` / `\;`) so Zotero does not split the record (typical on macOS when a folder name contains `/`). The value is not passed through LaTeX `bib_escape`.  
 4. Plain text — easy to inspect before import  
 
 The `.bib` import creates the **parent item**. The **PDF** is a separate file attachment step if import did not attach it.
@@ -268,7 +274,9 @@ Full click-path and success checklist:
 - Scanned PDFs without a text layer often parse poorly in GROBID.  
 - Crossref may mis-pick a work if the title is very generic — check the `.bib` before import.  
 - BibTeX `file` import is not always honoured by every Zotero version/setting; dragging the PDF onto the item always works.  
+- Folder names with `/` become `:` in macOS POSIX paths; pdf2zotero escapes those in `file`. Re-convert older `.bib` files if an import dropped the PDF.  
 - With no usable metadata the entry may be almost empty (still with a `file` field).  
+- `scripts/import-to-zotero.sh` is macOS-only (Docker/GROBID/Zotero autostart + Finder Quick Action).  
 
 ## Troubleshooting
 
@@ -277,7 +285,8 @@ Full click-path and success checklist:
 | `Could not contact GROBID` | Start GROBID; wait; check `--grobid-url` |
 | Web UI: GROBID offline | Same |
 | `.bib` is tiny / `unknown…` | Bad parse; try text-layer PDF; ensure network for Crossref |
-| Import OK, **no PDF** | Drag PDF onto the item in Zotero |
+| Import OK, **no PDF** | Drag PDF onto the item; if a folder name had `/`, re-convert so `file` contains `\:` |
+| `Ingen PDF-fil angiven` | Pass PDF paths to `scripts/import-to-zotero.sh`, or `--install` |
 | `command not found: pdf2zotero` | Use `python3 pdf2zotero.py` or PATH symlink |
 | Port 8765 in use | `python3 webui.py --port 8766` |
 | Web UI will not open | `--no-browser` and open `http://127.0.0.1:8765/` manually |

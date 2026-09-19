@@ -1,7 +1,7 @@
 # Prerequisites
 
-Everything you need **before** running `pdf2zotero.py` or `webui.py`.  
-After this, continue with **[GETTING_STARTED.md](GETTING_STARTED.md)** (convert → import into Zotero).
+Everything you need **before** running `pdf2zotero.py`, `webui.py`, or (macOS) `scripts/import-to-zotero.sh`.  
+After this, continue with **[GETTING_STARTED.md](GETTING_STARTED.md)** (convert → import into Zotero; Path C is the macOS helper).
 
 ---
 
@@ -390,7 +390,7 @@ brew install git
 
 git clone https://github.com/jensabrahamsson/pdf2zotero.git
 cd pdf2zotero
-chmod +x pdf2zotero.py webui.py
+chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh
 ```
 
 **No runtime pip dependencies** (stdlib only). [`requirements.txt`](requirements.txt) is present and **intentionally empty** so the dependency surface is explicit; `pip install -r requirements.txt` is a no-op for running the app. A local `.venv` is fine for development and verification.
@@ -436,7 +436,7 @@ brew --version          # macOS path
 python3 --version
 docker info >/dev/null && echo "docker OK"
 curl -s http://localhost:8070/api/isalive
-ls pdf2zotero.py webui.py
+ls pdf2zotero.py webui.py scripts/import-to-zotero.sh
 ```
 
 ---
@@ -446,7 +446,7 @@ ls pdf2zotero.py webui.py
 1. **Homebrew tools available** (`brew`, `python3`, `docker` on `PATH`)  
 2. **Runtime up:** Docker Desktop **or** `colima start`  
 3. **GROBID up:** `curl -s http://localhost:8070/api/isalive`  
-4. **Convert:** [GETTING_STARTED.md](GETTING_STARTED.md)  
+4. **Convert:** [GETTING_STARTED.md](GETTING_STARTED.md) (macOS helper: [Path C](GETTING_STARTED.md#path-c-macos-convert-and-open-in-zotero))  
 5. **Zotero import + PDF attach:** same guide + [Zotero docs](https://www.zotero.org/support)  
 
 ---

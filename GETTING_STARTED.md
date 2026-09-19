@@ -60,7 +60,7 @@ The **CLI and web UI** only prepare files. You import them with Zotero’s built
 | 1 | Python 3.9+ (recommend 3.11–3.14) | `python3 --version` |
 | 2 | Docker Desktop **or** Colima + `docker` CLI | `docker info` |
 | 3 | GROBID on port 8070 | `curl -s http://localhost:8070/api/isalive` |
-| 4 | This repo | `ls pdf2zotero.py webui.py` |
+| 4 | This repo | `ls pdf2zotero.py webui.py scripts/import-to-zotero.sh` |
 | 5 | Zotero desktop | [download](https://www.zotero.org/download/) |
 | 6 | Network (usual) | for doi.org / Crossref |
 
@@ -124,6 +124,12 @@ file = {:/path/to/paper.pdf:application/pdf}
 
 That `file` line is how Zotero can find the **PDF itself** on import.
 
+On macOS, a Finder folder whose name contains a slash (for example `Masteruppsatsen 26/27`) is stored with a **colon** in the POSIX path (`26:27`). Zotero’s BibTeX importer splits `file` on unescaped `:` and `;`, so pdf2zotero writes those characters as `\:` and `\;` (the path is not LaTeX-escaped). Example:
+
+```bibtex
+file = {:/Users/you/Papers/Masteruppsatsen 26\:27/paper.pdf:application/pdf}
+```
+
 Several PDFs:
 
 ```bash
@@ -158,18 +164,28 @@ By default files are written to:
 
 The web UI stays **local** (`127.0.0.1`). Your PDFs are not uploaded to a cloud service run by this project.
 
-### Path C — macOS: convert and open in Zotero
+### Path C: macOS convert and open in Zotero
 
-`scripts/import-to-zotero.sh` starts Docker/GROBID/Zotero if needed, runs `pdf2zotero.py`, then opens the generated `.bib` with Zotero (`open -a Zotero file.bib`). That is the same [File → Import](https://www.zotero.org/support/kb/importing_standardized_formats) path as Parts A–B below.
+`scripts/import-to-zotero.sh` is a wrapper around the same CLI. It does **not** reimplement metadata logic. In order it:
+
+1. Starts Docker Desktop or Colima if `docker info` fails  
+2. Starts the GROBID container if `http://127.0.0.1:8070/api/isalive` is not true  
+3. Opens the Zotero desktop app  
+4. Runs `pdf2zotero.py` on each PDF (writes `name.bib` next to `name.pdf`)  
+5. Opens each `.bib` with Zotero (`open -a Zotero file.bib`) — the same [File → Import](https://www.zotero.org/support/kb/importing_standardized_formats) path as Part A below  
+
+macOS notifications show progress. There is no Zotero API key and no private import protocol.
 
 ```bash
 chmod +x scripts/import-to-zotero.sh   # once
 ./scripts/import-to-zotero.sh "/path/to/paper.pdf"
 ./scripts/import-to-zotero.sh a.pdf b.pdf
-./scripts/import-to-zotero.sh --install   # Finder Quick Action: Importera till Zotero
+./scripts/import-to-zotero.sh --install
 ```
 
-`--install` writes a Finder Quick Action under `~/Library/Services/` (right-click a PDF → Quick Actions). After import, still check that the PDF is a child attachment (Part B).
+`--install` writes a Finder Quick Action to `~/Library/Services/Importera till Zotero.workflow`. Then: select a PDF in Finder → right-click → **Quick Actions** → **Importera till Zotero**.
+
+After import, still confirm the PDF is a **child attachment** (Part B). On Linux or Windows, use Path A or B and **File → Import…**.
 
 ---
 
@@ -363,6 +379,15 @@ python3 pdf2zotero.py report.pdf --no-doi-lookup
 
 Uses GROBID + PDF Info only. Import into Zotero the same way; fix metadata in Zotero later if needed.
 
+### Example 4 — macOS helper (convert + open in Zotero)
+
+```bash
+./scripts/import-to-zotero.sh ~/Papers/smith2020.pdf
+# optional once: ./scripts/import-to-zotero.sh --install
+```
+
+Zotero should open on `smith2020.bib`. Expand the new item and check the PDF child; drag the PDF onto the item if it is missing.
+
 ---
 
 ## Checklist before you ask “why is it empty?”
@@ -370,7 +395,7 @@ Uses GROBID + PDF Info only. Import into Zotero the same way; fix metadata in Zo
 - [ ] `curl -s http://localhost:8070/api/isalive` works  
 - [ ] You ran pdf2zotero/web UI **after** GROBID was up  
 - [ ] The `.bib` is not full of only `unknown` / almost empty (open it in a text editor)  
-- [ ] You used **File → Import… → A file**, not “add PDF alone without import”  
+- [ ] You used **File → Import… → A file**, or Path C opened the `.bib` in Zotero — not “add PDF alone without import”  
 - [ ] PDF path in the `.bib` still exists, **or** you dragged the PDF onto the item  
 - [ ] Same computer (absolute paths do not work across machines)
 
@@ -383,7 +408,10 @@ Uses GROBID + PDF Info only. Import into Zotero the same way; fix metadata in Zo
 | `Could not contact GROBID` | Start Docker + GROBID; wait for isalive; check `--grobid-url` |
 | Web UI: GROBID offline | Same; status bar polls `/api/isalive` |
 | `.bib` is tiny / `unknown…` | GROBID got little; try better PDF (text layer); check PDF Info; ensure network for Crossref |
-| Import works, **no PDF** | Drag PDF onto the Zotero item (Step 3 above) |
+| Import works, **no PDF** | Drag PDF onto the Zotero item (Part B). If a folder name contained `/` (macOS POSIX `:`), re-convert so `file` contains `\:` |
+| `Ingen PDF-fil angiven` | Pass one or more `.pdf` paths to `import-to-zotero.sh`, or `--install` |
+| Finder Quick Action missing | `./scripts/import-to-zotero.sh --install`, then right-click a PDF → Quick Actions |
+| Script waits on Docker / GROBID | Start Docker Desktop or Colima; see [PREREQUISITES.md](PREREQUISITES.md) |
 | PDF opens on wrong machine | Paths are absolute and local — import on the machine that has the files |
 | Port 8765 in use | `python3 webui.py --port 8766` |
 | Docker / ARM issues | See README troubleshooting; try CRF image or Docker Desktop fully started |
@@ -413,6 +441,7 @@ python3 pdf2zotero.py paper.pdf
 python3 webui.py          # then drop the PDF
 # or (macOS: convert + open .bib in Zotero)
 ./scripts/import-to-zotero.sh paper.pdf
+# ./scripts/import-to-zotero.sh --install   # Finder Quick Action
 ```
 
 **3–9) In Zotero — bibliographic record**  
