@@ -1049,19 +1049,38 @@ def bib_escape(value: str) -> str:
     )
 
 
+def encode_zotero_file_path(path: str) -> str:
+    """Escape characters in file paths for Zotero/JabRef BibTeX file field.
+
+    Zotero's parseFilePathRecord treats ':' and ';' as delimiters, decoding
+    escaped characters via '\\x'. Backslashes, colons, and semicolons are escaped.
+    Curly braces are stripped so they do not break BibTeX field delimiters.
+    We avoid bib_escape here because LaTeX \\textbackslash{} breaks Zotero's path decoder.
+    """
+    clean = path.replace("{", "").replace("}", "")
+    return clean.replace("\\", "\\\\").replace(":", r"\:").replace(";", r"\;")
+
+
 def zotero_file_field(pdf_path: Path) -> str:
     """JabRef/Zotero file attachment value: :/abs/path:application/pdf"""
-    return f":{pdf_path.resolve()}:application/pdf"
+    path_str = str(pdf_path.resolve())
+    return f":{encode_zotero_file_path(path_str)}:application/pdf"
 
 
 def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:
     """Ensure BibTeX entry links the local PDF (insert or replace file field)."""
-    file_value = bib_escape(zotero_file_field(pdf_path))
+    file_value = zotero_file_field(pdf_path)
+
+    def _replace_file(match: re.Match[str]) -> str:
+        # Callable replacer: a string template would treat \\ in file_value as
+        # re.sub escapes and collapse encoder doubling (and \\1 / \\2 in paths).
+        return match.group(1) + file_value + match.group(2)
+
     if re.search(r"(?im)^\s*file\s*=", bibtex):
         # Support both brace and quoted forms used by doi.org / exporters.
         replaced, n = re.subn(
             r'(?is)(file\s*=\s*\{).*?(\})',
-            rf"\1{file_value}\2",
+            _replace_file,
             bibtex,
             count=1,
         )
@@ -1069,7 +1088,7 @@ def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:
             return replaced
         replaced, n = re.subn(
             r'(?is)(file\s*=\s*").*?(")',
-            rf"\1{file_value}\2",
+            _replace_file,
             bibtex,
             count=1,
         )
@@ -1182,7 +1201,8 @@ def fallback_bibtex(metadata: Metadata, pdf_path: Path) -> str:
     lines = [f"@{entry}{{{key},"]
     for index, (name, value) in enumerate(fields):
         comma = "," if index < len(fields) - 1 else ""
-        lines.append(f"  {name} = {{{bib_escape(value)}}}{comma}")
+        val = value if name == "file" else bib_escape(value)
+        lines.append(f"  {name} = {{{val}}}{comma}")
     lines.append("}")
     return "\n".join(lines) + "\n"
 

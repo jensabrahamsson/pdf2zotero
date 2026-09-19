@@ -38,15 +38,15 @@ These pages are maintained by the Zotero project. Prefer them if anything here c
 
 ```mermaid
 flowchart TD
-  PDF[Your PDF] --> P2Z[pdf2zotero CLI or web UI]
+  PDF[Your PDF] --> P2Z[pdf2zotero CLI, web UI, or import-to-zotero.sh]
   P2Z --> BIB["paper.bib — metadata for Import"]
   P2Z --> PDFout["paper.pdf — document path in file field"]
-  BIB --> Z["Zotero: File → Import"]
+  BIB --> Z["Zotero: File → Import (or open the .bib)"]
   PDFout -.->|attach if needed| Z
   Z --> DONE[Library item + PDF attachment]
 ```
 
-pdf2zotero **never writes into Zotero by itself**. It prepares files; **you** import them with Zotero’s built-in **File → Import…**. That is how Zotero is designed to take standardized formats such as BibTeX ([supported formats](https://www.zotero.org/support/kb/importing_standardized_formats)).
+The **CLI and web UI** only prepare files. You import them with Zotero’s built-in **File → Import…** ([supported formats](https://www.zotero.org/support/kb/importing_standardized_formats)). On macOS, `scripts/import-to-zotero.sh` can convert and **open the `.bib` in Zotero** for you — still Zotero’s own import, not a private API.
 
 ---
 
@@ -71,7 +71,7 @@ Short clone (details in PREREQUISITES):
 ```bash
 git clone https://github.com/jensabrahamsson/pdf2zotero.git
 cd pdf2zotero
-chmod +x pdf2zotero.py webui.py
+chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh
 ```
 
 Optional PATH helper:
@@ -84,9 +84,9 @@ ln -sf "$(pwd)/pdf2zotero.py" ~/bin/pdf2zotero
 
 ---
 
-## Everyday use — choose CLI or web UI
+## Everyday use — choose CLI, web UI, or macOS automation
 
-Both paths use the **same** conversion logic. Both end with **import into Zotero**.
+CLI and web UI use the **same** conversion logic and end with **import into Zotero**. On macOS you can also run `scripts/import-to-zotero.sh`, which converts and opens the `.bib` in Zotero.
 
 ### Path A — Command line (batch-friendly)
 
@@ -158,13 +158,26 @@ By default files are written to:
 
 The web UI stays **local** (`127.0.0.1`). Your PDFs are not uploaded to a cloud service run by this project.
 
+### Path C — macOS: convert and open in Zotero
+
+`scripts/import-to-zotero.sh` starts Docker/GROBID/Zotero if needed, runs `pdf2zotero.py`, then opens the generated `.bib` with Zotero (`open -a Zotero file.bib`). That is the same [File → Import](https://www.zotero.org/support/kb/importing_standardized_formats) path as Parts A–B below.
+
+```bash
+chmod +x scripts/import-to-zotero.sh   # once
+./scripts/import-to-zotero.sh "/path/to/paper.pdf"
+./scripts/import-to-zotero.sh a.pdf b.pdf
+./scripts/import-to-zotero.sh --install   # Finder Quick Action: Importera till Zotero
+```
+
+`--install` writes a Finder Quick Action under `~/Library/Services/` (right-click a PDF → Quick Actions). After import, still check that the PDF is a child attachment (Part B).
+
 ---
 
 ## Get the material into Zotero (exact 1–2–3… steps)
 
 This is the part that puts **metadata and the PDF document** into your library.
 
-pdf2zotero does **not** push into Zotero by itself. You use Zotero’s normal import and file tools, documented by Zotero here:
+The CLI and web UI do **not** push into Zotero by themselves. You use Zotero’s normal import and file tools (or Path C, which opens the `.bib` in Zotero), documented by Zotero here:
 
 | Official Zotero page | What it covers |
 |----------------------|----------------|
@@ -398,6 +411,8 @@ docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
 python3 pdf2zotero.py paper.pdf
 # or
 python3 webui.py          # then drop the PDF
+# or (macOS: convert + open .bib in Zotero)
+./scripts/import-to-zotero.sh paper.pdf
 ```
 
 **3–9) In Zotero — bibliographic record**  

@@ -87,7 +87,7 @@ With GROBID already running on `http://localhost:8070`:
 ```bash
 git clone https://github.com/jensabrahamsson/pdf2zotero.git
 cd pdf2zotero
-chmod +x pdf2zotero.py webui.py
+chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh
 
 # CLI
 python3 pdf2zotero.py artikel.pdf
@@ -96,9 +96,13 @@ python3 pdf2zotero.py artikel.pdf
 # or web UI
 python3 webui.py
 # → http://127.0.0.1:8765/  (saves under ~/Downloads/pdf2zotero/)
+
+# or macOS: convert and open the .bib in Zotero
+./scripts/import-to-zotero.sh artikel.pdf
+# ./scripts/import-to-zotero.sh --install   # Finder Quick Action
 ```
 
-Then in Zotero: **File → Import… → A file** → choose the `.bib`.  
+Then in Zotero: **File → Import… → A file** → choose the `.bib` (Path C already opens it).  
 If there is no PDF under the item, drag the PDF onto it.
 
 ```mermaid
@@ -179,6 +183,16 @@ python3 pdf2zotero.py artikel.pdf --timeout 180
 
 Default: write `name.bib` next to `name.pdf`.
 
+### macOS convert-and-import helper
+
+```bash
+./scripts/import-to-zotero.sh artikel.pdf
+./scripts/import-to-zotero.sh a.pdf b.pdf
+./scripts/import-to-zotero.sh --install
+```
+
+Starts Docker, GROBID, and Zotero if needed, runs `pdf2zotero.py`, then opens each `.bib` with Zotero ([File → Import](https://www.zotero.org/support/kb/importing_standardized_formats)). `--install` adds a Finder Quick Action. Still verify the PDF child attachment.
+
 ### Web UI
 
 ```bash
@@ -207,7 +221,7 @@ python3 webui.py
 
 ## Into Zotero (the actual goal)
 
-pdf2zotero does **not** push into Zotero automatically. You finish with Zotero’s own UI, as documented by Zotero:
+The CLI and web UI do **not** push into Zotero automatically. You finish with Zotero’s own UI, as documented by Zotero. On macOS, `scripts/import-to-zotero.sh` converts and opens the `.bib` in Zotero (same import):
 
 - [Import BibTeX / standardized formats](https://www.zotero.org/support/kb/importing_standardized_formats) — **File → Import… → A file**  
 - [Adding items](https://www.zotero.org/support/adding_items_to_zotero) — items vs PDFs  

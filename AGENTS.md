@@ -15,7 +15,7 @@ Core split of responsibility:
 1. **GROBID** — understand the PDF (TEI XML).  
 2. **doi.org / Crossref** — authoritative bibliographic record when a DOI exists.  
 3. **BibTeX + `file` field** — Zotero-importable package (metadata + path to PDF).  
-4. **Zotero** — library destination (user runs File → Import…).  
+4. **Zotero** — library destination (user runs File → Import…, or on macOS `scripts/import-to-zotero.sh` opens the `.bib`).  
 
 Install stack (Python, Docker/Colima, GROBID, Zotero): [`PREREQUISITES.md`](PREREQUISITES.md).  
 User walkthrough (convert → Zotero import → PDF attachment): [`GETTING_STARTED.md`](GETTING_STARTED.md).  
@@ -45,7 +45,7 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 - Fallback BibTeX types: **`@article`** / **`@book`** / **`@techreport`** from `entry_type` (`article` | `book` | `report`).  
 - Always attach the local PDF with a Zotero-compatible `file` field:  
   `:{absolute_path}:application/pdf`  
-  including after a successful DOI lookup.  
+  including after a successful DOI lookup. Escape `:` and `;` in the path (`\:` / `\;`); do not run the file value through LaTeX `bib_escape`.  
 - Keep the public CLI stable unless the change is intentional and documented in `README.md`.  
 - License is **MIT** — do not switch license without an explicit user request.
 
@@ -55,8 +55,8 @@ Do not claim the project “installs with pip” or bundles GROBID. Document ext
 pdf2zotero.py      # CLI + conversion library
 webui.py           # local drag-and-drop HTTP UI (stdlib)
 webui_static/      # index.html, styles.css, app.js
-scripts/           # setup-grobid.sh / setup-grobid.ps1 (Docker GROBID)
-tests/             # stdlib unittest (pdf2zotero + webui)
+scripts/           # setup-grobid.sh / setup-grobid.ps1 (Docker GROBID); import-to-zotero.sh (macOS convert+open)
+tests/             # stdlib unittest (pdf2zotero + webui + import script entry points)
 e2e/               # live OA harness + harness unit tests
 requirements.txt   # intentionally empty (stdlib-only runtime)
 .github/           # workflows + dependabot.yml

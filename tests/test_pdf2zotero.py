@@ -246,6 +246,92 @@ class AttachFileTests(unittest.TestCase):
         self.assertIn("file = {", out)
         self.assertIn(pdf2zotero.zotero_file_field(pdf), out)
 
+    def test_escapes_colons_and_semicolons_in_path(self):
+        # On macOS, slashes in folder names (e.g. "Masteruppsatsen 26/27") appear as colons in POSIX paths.
+        pdf = Path("/tmp/folder 26:27/semi;colon/doc.pdf")
+        resolved = str(pdf.resolve())
+        field = pdf2zotero.zotero_file_field(pdf)
+        inner = pdf2zotero.encode_zotero_file_path(resolved)
+        self.assertEqual(field, f":{inner}:application/pdf")
+        self.assertIn(r"26\:27", field)
+        self.assertIn(r"semi\;colon", field)
+        self.assertNotIn(r"\textbackslash{}", field)
+        self.assertTrue(field.startswith(":"))
+        self.assertTrue(field.endswith(":application/pdf"))
+
+        brace = "@article{x,\n  file = {:/old.pdf:application/pdf}\n}\n"
+        quote = '@article{x,\n  file = ":/old.pdf:application/pdf"\n}\n'
+        out_b = pdf2zotero.attach_file_to_bibtex(brace, pdf)
+        out_q = pdf2zotero.attach_file_to_bibtex(quote, pdf)
+        self.assertIn(f"file = {{{field}}}", out_b)
+        self.assertIn(f'file = "{field}"', out_q)
+        self.assertNotIn("/old.pdf", out_b)
+        self.assertNotIn("/old.pdf", out_q)
+        self.assertNotIn(r"\textbackslash{}", out_b)
+        self.assertNotIn(r"\textbackslash{}", out_q)
+
+        inserted = pdf2zotero.attach_file_to_bibtex(
+            "@article{x,\n  title = {Hello}\n}\n", pdf
+        )
+        self.assertIn(f"file = {{{field}}}", inserted)
+        self.assertNotIn(r"\textbackslash{}", inserted)
+
+        meta = pdf2zotero.Metadata(title="Test Book & Co", entry_type="book")
+        fb = pdf2zotero.fallback_bibtex(meta, pdf)
+        self.assertIn(f"file = {{{field}}}", fb)
+        self.assertNotIn(r"\textbackslash{}", fb)
+        self.assertIn(r"Test Book \& Co", fb)
+
+    def test_replace_preserves_doubled_backslashes(self):
+        # re.sub string templates collapse \\; brace/quoted replace must keep encoder doubling.
+        pdf = Path(r"/tmp/folder 26:27/semi;colon/weird\name.pdf")
+        field = pdf2zotero.zotero_file_field(pdf)
+        self.assertIn(r"26\:27", field)
+        self.assertIn(r"semi\;colon", field)
+        self.assertIn(r"weird\\name.pdf", field)
+        self.assertNotIn(r"\textbackslash{}", field)
+
+        brace = "@article{x,\n  file = {:/old.pdf:application/pdf}\n}\n"
+        quote = '@article{x,\n  file = ":/old.pdf:application/pdf"\n}\n'
+        out_b = pdf2zotero.attach_file_to_bibtex(brace, pdf)
+        out_q = pdf2zotero.attach_file_to_bibtex(quote, pdf)
+        self.assertIn(f"file = {{{field}}}", out_b)
+        self.assertIn(f'file = "{field}"', out_q)
+        self.assertIn(r"weird\\name.pdf", out_b)
+        self.assertIn(r"weird\\name.pdf", out_q)
+        self.assertNotIn(r"\textbackslash{}", out_b)
+        self.assertNotIn(r"\textbackslash{}", out_q)
+        self.assertNotIn("/old.pdf", out_b)
+        self.assertNotIn("/old.pdf", out_q)
+
+
+class EncodeZoteroFilePathTests(unittest.TestCase):
+    def test_colon_semicolon_backslash_and_braces(self):
+        encoded = pdf2zotero.encode_zotero_file_path(
+            r"/tmp/folder 26:27/semi;colon/x{y}z/weird\name.pdf"
+        )
+        self.assertIn(r"26\:27", encoded)
+        self.assertNotIn("26:27", encoded)
+        self.assertIn(r"semi\;colon", encoded)
+        self.assertNotIn("semi;colon", encoded)
+        self.assertIn("xyz", encoded)
+        self.assertNotIn("{", encoded)
+        self.assertNotIn("}", encoded)
+        self.assertIn(r"weird\\name.pdf", encoded)
+        self.assertNotIn(r"\textbackslash{}", encoded)
+
+    def test_zotero_file_field_strips_braces_without_latex(self):
+        pdf = Path("/tmp/x{y}z.pdf")
+        field = pdf2zotero.zotero_file_field(pdf)
+        self.assertIn("xyz.pdf", field)
+        self.assertNotIn("{", field)
+        self.assertNotIn("}", field)
+        self.assertNotIn(r"\textbackslash{}", field)
+        self.assertEqual(
+            field,
+            f":{pdf2zotero.encode_zotero_file_path(str(pdf.resolve()))}:application/pdf",
+        )
+
 
 class ParseTeiTests(unittest.TestCase):
     def test_article_prefers_published_date(self):

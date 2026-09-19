@@ -19,6 +19,9 @@ python3 pdf2zotero.py paper.pdf          # → paper.bib (+ file path to PDF)
 # or convert (web UI)
 python3 webui.py                         # drop PDF → ~/Downloads/pdf2zotero/
 
+# or macOS: convert and open the .bib in Zotero
+./scripts/import-to-zotero.sh paper.pdf
+
 # Zotero
 # File → Import… → A file → the .bib
 # If no PDF under the item: drag the PDF onto the item
@@ -210,7 +213,8 @@ The architecture assumes these are available at runtime.
 End-user paths:
 
 - CLI: `pdf2zotero artikel.pdf` → `artikel.bib` → Zotero **File → Import…**  
-- Web: `python3 webui.py` → drop PDF → `~/Downloads/pdf2zotero/*.bib` → Zotero **File → Import…**
+- Web: `python3 webui.py` → drop PDF → `~/Downloads/pdf2zotero/*.bib` → Zotero **File → Import…**  
+- macOS helper: `./scripts/import-to-zotero.sh artikel.pdf` → convert, then open the `.bib` in Zotero
 
 The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and optionally to doi.org / Crossref.
 
@@ -221,7 +225,7 @@ The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and o
 - **DOI BibTeX:** HTTP GET to `https://doi.org/{doi}` with `Accept: application/x-bibtex`. Payloads that are not a usable record (no `@` entry, comma in the cite key, missing/empty title, HTML/XML dump) are rejected and conversion falls back to local metadata.  
 - **PDF attachment:** JabRef/Zotero-style field  
   `file = {:/absolute/path/to/paper.pdf:application/pdf}`  
-  always added (including when DOI metadata is used).  
+  always added (including when DOI metadata is used). Colons and semicolons in the path are backslash-escaped so Zotero does not split the record; the value is not passed through LaTeX `bib_escape`.  
 - **Offline / privacy:** `--no-doi-lookup` skips **doi.org and Crossref only**. It does **not** stop a configured remote GROBID URL from receiving the PDF.  
 - **Debugging:** `--save-tei` writes GROBID’s TEI XML next to the `.bib` file (CLI).  
 - **Resources:** Local GROBID is the heavy dependency (container image + RAM); the Python tools themselves are trivial.
