@@ -22,6 +22,10 @@ python3 webui.py                         # drop PDF → ~/Downloads/pdf2zotero/
 # or macOS: convert and open the .bib in Zotero
 ./scripts/import-to-zotero.sh paper.pdf
 
+# or Windows (PowerShell): python / py -3; GROBID via setup-grobid.ps1
+# python pdf2zotero.py paper.pdf
+# .\scripts\import-to-zotero.ps1 paper.pdf
+
 # Zotero
 # File → Import… → A file → the .bib
 # If no PDF under the item: drag the PDF onto the item
@@ -184,7 +188,7 @@ Each component does what it is best at:
 | **DOI / Crossref** | Authoritative bibliographic metadata |
 | **BibTeX file** | Zotero-supported import carrier ([formats list](https://www.zotero.org/support/kb/importing_standardized_formats)) |
 | **Zotero** | Library, attachments, cite, sync — the place material lives |
-| **CLI / web UI / macOS helper** | Local ways to produce the import file; `import-to-zotero.sh` also opens the `.bib` in Zotero |
+| **CLI / web UI / convert-and-open helpers** | Local ways to produce the import file; `import-to-zotero.sh` (macOS) and `import-to-zotero.ps1` (Windows) also open the `.bib` in Zotero |
 
 pdf2zotero is only the glue:
 
@@ -192,7 +196,7 @@ pdf2zotero is only the glue:
 - extract identifiers and fallback fields  
 - resolve DOI → BibTeX when possible  
 - link the local PDF for Zotero attachment on import  
-- expose that pipeline via **CLI** (`pdf2zotero.py`), **local web UI** (`webui.py`), or on macOS **`scripts/import-to-zotero.sh`** (starts Docker/GROBID/Zotero if needed, then opens the `.bib` — same `pdf2zotero.py` conversion)
+- expose that pipeline via **CLI** (`pdf2zotero.py`), **local web UI** (`webui.py`), **macOS `scripts/import-to-zotero.sh`**, or **Windows `scripts/import-to-zotero.ps1`** (starts Docker/GROBID/Zotero if needed, then opens the `.bib` — same `pdf2zotero.py` conversion)
 
 That keeps the solution small, easy to reason about, and robust when a PDF is hard to parse: a correct DOI still yields a clean **library** entry after import—not just a JSON blob of fields.
 
@@ -203,10 +207,10 @@ The architecture assumes these are available at runtime.
 
 | Layer | Prerequisite | Failure mode if missing |
 |-------|----------------|-------------------------|
-| Runtime | Python **3.9+** (recommend **3.11–3.14**; shebang `python3`) | Script does not start |
-| Executable | `chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh` (optional `~/bin/pdf2zotero` symlink) | `Permission denied` / `command not found` |
+| Runtime | Python **3.9+** (recommend **3.11–3.14**; shebang `python3`; Windows: `python` / `py -3`) | Script does not start |
+| Executable | `chmod +x pdf2zotero.py webui.py scripts/import-to-zotero.sh` (optional `~/bin/pdf2zotero` symlink; Windows invokes `python pdf2zotero.py`) | `Permission denied` / `command not found` |
 | PDF understanding | GROBID HTTP API | Hard error: cannot process PDF |
-| Hosting GROBID | Docker (or other GROBID install) | Same as above if nothing listens on the URL |
+| Hosting GROBID | Docker (or other GROBID install); Windows: Docker Desktop + `scripts/setup-grobid.ps1` | Same as above if nothing listens on the URL |
 | Authoritative metadata | HTTPS to **doi.org** (BibTeX) and **Crossref** (DOI search) | Warning + fallback to local BibTeX |
 | Library UI | Zotero (optional for generation) | You still get `.bib`; no in-app library |
 
@@ -214,7 +218,8 @@ End-user paths:
 
 - CLI: `pdf2zotero artikel.pdf` → `artikel.bib` → Zotero **File → Import…**  
 - Web: `python3 webui.py` → drop PDF → `~/Downloads/pdf2zotero/*.bib` → Zotero **File → Import…**  
-- macOS helper: `./scripts/import-to-zotero.sh artikel.pdf` → convert, then open the `.bib` in Zotero
+- macOS helper: `./scripts/import-to-zotero.sh artikel.pdf` → convert, then open the `.bib` in Zotero  
+- Windows helper: `.\scripts\import-to-zotero.ps1 artikel.pdf` → same conversion, then open the `.bib` in Zotero
 
 The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and optionally to doi.org / Crossref.
 
@@ -226,6 +231,10 @@ The script never ships GROBID or Zotero; it only talks to GROBID over HTTP and o
 - **PDF attachment:** JabRef/Zotero-style field  
   `file = {:/absolute/path/to/paper.pdf:application/pdf}`  
   always added (including when DOI metadata is used). Colons and semicolons in the path are backslash-escaped so Zotero does not split the record; the value is not passed through LaTeX `bib_escape`.  
+  Paths are written with **POSIX separators** (`Path.resolve().as_posix()`) so Windows backslashes never hit BibTeX escaping. The drive-letter colon is escaped (`C\:`) because unescaped `C:` is a JabRef delimiter. On Windows the value looks like  
+  `file = {:C\:/Users/…/paper.pdf:application/pdf}`.  
+  If import does not attach the PDF, drag it onto the parent item  
+  ([attaching files](https://www.zotero.org/support/attaching_files)).  
 - **Offline / privacy:** `--no-doi-lookup` skips **doi.org and Crossref only**. It does **not** stop a configured remote GROBID URL from receiving the PDF.  
 - **Debugging:** `--save-tei` writes GROBID’s TEI XML next to the `.bib` file (CLI).  
 - **Resources:** Local GROBID is the heavy dependency (container image + RAM); the Python tools themselves are trivial.
@@ -288,7 +297,7 @@ User-facing steps that cite these pages: [GETTING_STARTED.md](GETTING_STARTED.md
 
 ## Related files
 
-- [`PREREQUISITES.md`](PREREQUISITES.md) — **Python, Docker/Colima, GROBID, Zotero**  
+- [`PREREQUISITES.md`](PREREQUISITES.md) — **Python, Docker/Colima, GROBID, Zotero** (incl. Windows)  
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) — convert and import into Zotero  
 - [`pdf2zotero.py`](pdf2zotero.py) — CLI + conversion library  
 - [`webui.py`](webui.py) — local drag-and-drop web server  

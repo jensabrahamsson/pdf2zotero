@@ -1,8 +1,7 @@
 # Windows support plan — pdf2zotero
 
-**Status:** ready to execute  
-**Goal-compatible:** yes — thin stdlib layer; product success = Zotero parent item + PDF child via BibTeX import  
-**Constraint:** no live Windows machine available for end-to-end Zotero testing; verification relies on synthetic path tests + existing Mac/Linux checklist  
+**Status:** implemented (see `scripts/setup-grobid.ps1`, `scripts/import-to-zotero.ps1`, POSIX `file` fields with escaped drive colon, Windows docs, and `test-windows` CI)  
+**Deviation from K2:** the drive-letter colon **is** escaped (`C\:`). Unescaped `C:/…` is split by Zotero/JabRef; forum-verified working form is `:C\:/path:application/pdf`.  
 
 This document is the design + **PR Plan** for making pdf2zotero usable on Windows without regressing macOS/Linux.
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "import-to-zotero.sh"
+_ON_WINDOWS = os.name == "nt"
 
 
 def _run_script(*args: str, env: dict[str, str] | None = None, timeout: int = 20) -> subprocess.CompletedProcess[str]:
@@ -28,6 +29,7 @@ def _run_script(*args: str, env: dict[str, str] | None = None, timeout: int = 20
     )
 
 
+@unittest.skipIf(_ON_WINDOWS, "import-to-zotero.sh is a macOS bash helper")
 class ImportToZoteroScriptTests(unittest.TestCase):
     def test_script_is_executable_and_exits_before_docker(self):
         self.assertTrue(SCRIPT.is_file(), f"missing {SCRIPT}")

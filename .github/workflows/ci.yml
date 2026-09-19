@@ -61,6 +61,28 @@ jobs:
           print("markdown/UI checks OK")
           PY
 
+  # Compile + unit tests only; no Docker/GROBID. Covers Windows path/file-field tests.
+  test-windows:
+    name: Windows Python 3.12
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Compile
+        run: python -m py_compile pdf2zotero.py webui.py e2e/harness.py
+
+      # Separate steps: PowerShell otherwise reports only the last command's exit code.
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Harness unit tests
+        run: python -m unittest e2e.test_harness_unit -v
+
   live-smoke:
     name: Live GROBID smoke (manual)
     runs-on: ubuntu-latest
