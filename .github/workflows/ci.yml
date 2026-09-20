@@ -34,8 +34,16 @@ jobs:
       - name: Markdown fence check
         run: |
           python - <<'PY'
+          import re
           from pathlib import Path
+
           errors = []
+          grobid_08 = re.compile(r"(?:lfoppiano/)?grobid:0\.8", re.I)
+          recipe = re.compile(r"docker\s+(run|pull)\b", re.I)
+          allowed = re.compile(
+              r"\b(not|older|historical|avoid|instead|do not|don't)\b",
+              re.I,
+          )
           for path in Path(".").rglob("*.md"):
               if ".venv" in path.parts or "node_modules" in path.parts:
                   continue
@@ -43,14 +51,15 @@ jobs:
               # Odd number of ``` fences is a broken fence.
               if text.count("```") % 2 != 0:
                   errors.append(f"{path}: unbalanced ``` fences")
-              if "lfoppiano/grobid:0.8" in text and "not" not in text.lower():
-                  # Allow historical mentions only if marked non-default.
-                  if "not" not in text and "0.8.x" in text:
-                      pass
-                  elif "lfoppiano/grobid:0.8" in text and "not the documented default" not in text:
-                      # PREREQUISITES may mention old tags as non-default.
-                      if "not" not in text and "older" not in text.lower():
-                          errors.append(f"{path}: default GROBID 0.8.x recipe?")
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  if not grobid_08.search(line):
+                      continue
+                  if allowed.search(line):
+                      continue
+                  if recipe.search(line) or "default" in line.lower():
+                      errors.append(
+                          f"{path}:{lineno}: default GROBID 0.8.x recipe?"
+                      )
           # Soft check: no Google Fonts in UI (offline self-host policy).
           html = Path("webui_static/index.html").read_text(encoding="utf-8")
           if "fonts.googleapis.com" in html or "fonts.gstatic.com" in html:
@@ -98,7 +107,7 @@ jobs:
       - name: Start GROBID 0.9.0-crf
         run: |
           docker run -d --name grobid --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.0-crf
-          for i in $(seq 1 30); do
+          for i in $(seq 1 36); do
             if curl -sf http://localhost:8070/api/isalive | grep -qi true; then
               echo "GROBID up"
               exit 0

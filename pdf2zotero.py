@@ -355,7 +355,11 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
             scopes["page"] = value
 
     doi = ""
-    for node in root.findall(".//tei:idno", TEI_NS):
+    # Header sourceDesc only — cited works in listBibl/body must not win.
+    for node in root.findall(
+        ".//tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:idno",
+        TEI_NS,
+    ):
         node_type = (node.get("type") or "").lower()
         text = all_text(node)
         if node_type == "doi" and text:
@@ -395,21 +399,22 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
 
 
 def imprint_date(root: ET.Element) -> str:
-    """Prefer published date; use @when when present on the chosen node only."""
+    """Prefer published date; use @when when present on the chosen node only.
+
+    Empty ``<date type="published"/>`` must not block a usable sibling date.
+    """
     paths = [
         ".//tei:sourceDesc//tei:imprint/tei:date[@type='published']",
         ".//tei:sourceDesc//tei:imprint/tei:date",
     ]
     for path in paths:
-        node = root.find(path, TEI_NS)
-        if node is None:
-            continue
-        when = (node.get("when") or "").strip()
-        if when:
-            return when
-        text = all_text(node)
-        if text:
-            return text
+        for node in root.findall(path, TEI_NS):
+            when = (node.get("when") or "").strip()
+            if when:
+                return when
+            text = all_text(node)
+            if text:
+                return text
     return ""
 
 
@@ -735,7 +740,7 @@ def crossref_item_surnames(item: dict) -> set[str]:
     for author in item.get("author") or []:
         family = (author.get("family") or "").strip()
         if family:
-            surnames.add(re.sub(r"\W+", "", family).lower())
+            surnames.add(re.sub(r"\W+", "", family, flags=re.UNICODE).casefold())
     return surnames
 
 
@@ -777,6 +782,14 @@ def _http_read_with_retry(
                 return response.read()
         except urllib.error.HTTPError as exc:
             last_exc = exc
+            try:
+                exc.read()
+            except Exception:
+                pass
+            try:
+                exc.close()
+            except Exception:
+                pass
             if exc.code not in RETRYABLE_HTTP or attempt >= max_attempts - 1:
                 raise
             # Honour Retry-After when present (seconds only).
@@ -1054,11 +1067,15 @@ def encode_zotero_file_path(path: str) -> str:
 
     Zotero's parseFilePathRecord treats ':' and ';' as delimiters, decoding
     escaped characters via '\\x'. Backslashes, colons, and semicolons are escaped.
-    Curly braces are stripped so they do not break BibTeX field delimiters.
+    Curly braces are kept (``attach_file_to_bibtex`` uses quotes when needed).
     We avoid bib_escape here because LaTeX \\textbackslash{} breaks Zotero's path decoder.
     """
-    clean = path.replace("{", "").replace("}", "")
-    return clean.replace("\\", "\\\\").replace(":", r"\:").replace(";", r"\;")
+    return (
+        (path or "")
+        .replace("\\", "\\\\")
+        .replace(":", r"\:")
+        .replace(";", r"\;")
+    )
 
 
 def looks_like_windows_abs_path(path: str) -> bool:
@@ -1078,10 +1095,11 @@ def absolute_posix_path(pdf_path: Path) -> str:
 def format_zotero_file_value(absolute_path: str) -> str:
     """JabRef/Zotero file field from an absolute path string (any OS separators).
 
-    Windows drive/UNC paths are rewritten with ``/`` so separators never hit
-    ``bib_escape``. Drive-letter colons (and macOS POSIX colons from ``/`` in
-    folder names) are escaped as ``\\:`` — unescaped ``C:/…`` is split by
+    Windows drive/UNC paths are rewritten with ``/`` so separators are not
+    encoded as ``\\\\``. Drive-letter colons (and macOS POSIX colons from ``/``
+    in folder names) are escaped as ``\\:`` — unescaped ``C:/…`` is split by
     Zotero/JabRef. POSIX filenames may contain ``\\``; those stay and are doubled.
+    The value is never passed through LaTeX ``bib_escape``.
     """
     path = absolute_path or ""
     if looks_like_windows_abs_path(path):
@@ -1094,58 +1112,125 @@ def zotero_file_field(pdf_path: Path) -> str:
     return format_zotero_file_value(absolute_posix_path(pdf_path))
 
 
+def _file_field_wrapped(file_value: str, *, prefer_quote: bool = False) -> str:
+    """Wrap the file value. Quotes when the path contains braces or the source used quotes."""
+    if "{" in file_value or "}" in file_value or prefer_quote:
+        return '"' + file_value.replace('"', '\\"') + '"'
+    return "{" + file_value + "}"
+
+
+def _skip_bibtex_value(text: str, start: int) -> int:
+    """Index after a BibTeX field value that begins at start (past '=' / space)."""
+    i = start
+    n = len(text)
+    while i < n and text[i] in " \t":
+        i += 1
+    if i >= n:
+        return i
+    if text[i] == "{":
+        depth = 0
+        while i < n:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+            i += 1
+        return i
+    if text[i] == '"':
+        i += 1
+        while i < n:
+            if text[i] == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if text[i] == '"':
+                return i + 1
+            i += 1
+        return i
+    while i < n and text[i] not in ",\n":
+        i += 1
+    return i
+
+
+def _first_bibtex_entry_span(bibtex: str) -> tuple[int, int] | None:
+    """Start of @type{ and index of the matching closing brace."""
+    match = re.search(r"@\w+\s*\{", bibtex)
+    if not match:
+        return None
+    i = match.end() - 1
+    depth = 0
+    in_quote = False
+    while i < len(bibtex):
+        ch = bibtex[i]
+        if in_quote:
+            if ch == "\\" and i + 1 < len(bibtex):
+                i += 2
+                continue
+            if ch == '"':
+                in_quote = False
+        elif ch == '"':
+            in_quote = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return match.start(), i
+        i += 1
+    return None
+
+
 def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:
     """Ensure BibTeX entry links the local PDF (insert or replace file field)."""
     file_value = zotero_file_field(pdf_path)
-
-    def _replace_file(match: re.Match[str]) -> str:
-        # Callable replacer: a string template would treat \\ in file_value as
-        # re.sub escapes and collapse encoder doubling (and \\1 / \\2 in paths).
-        return match.group(1) + file_value + match.group(2)
-
-    if re.search(r"(?im)^\s*file\s*=", bibtex):
-        # Support both brace and quoted forms used by doi.org / exporters.
-        replaced, n = re.subn(
-            r'(?is)(file\s*=\s*\{).*?(\})',
-            _replace_file,
-            bibtex,
-            count=1,
-        )
-        if n:
-            return replaced
-        replaced, n = re.subn(
-            r'(?is)(file\s*=\s*").*?(")',
-            _replace_file,
-            bibtex,
-            count=1,
-        )
-        if n:
-            return replaced
-        # Field present but unrecognized shape — fall through to insert.
-
-    text = bibtex.rstrip()
-    if not text.endswith("}"):
+    span = _first_bibtex_entry_span(bibtex)
+    if span is None:
         return bibtex if bibtex.endswith("\n") else bibtex + "\n"
+    entry_start, close_at = span
+    entry = bibtex[entry_start:close_at]
+    assign = re.search(r"(?im)^(?P<pre>\s*file\s*=\s*)", entry)
+    if assign:
+        val_end = _skip_bibtex_value(entry, assign.end())
+        raw_val = entry[assign.end() : val_end].lstrip()
+        prefer_quote = raw_val.startswith('"')
+        wrapped = _file_field_wrapped(file_value, prefer_quote=prefer_quote)
+        new_entry = (
+            entry[: assign.start()] + assign.group("pre") + wrapped + entry[val_end:]
+        )
+        return bibtex[:entry_start] + new_entry + "}" + bibtex[close_at + 1 :]
 
-    head = text[:-1].rstrip()
+    wrapped = _file_field_wrapped(file_value)
+    head = entry.rstrip()
     if head and not head.endswith((",", "{")):
         head += ","
-    return head + f"\n  file = {{{file_value}}}\n}}\n"
+    new_entry = head + f"\n  file = {wrapped}\n"
+    return bibtex[:entry_start] + new_entry + "}" + bibtex[close_at + 1 :]
 
 
 def ensure_safe_output_path(pdf_path: Path, output_path: Path) -> None:
-    """Refuse to write BibTeX over the source PDF (or any same resolved path)."""
+    """Refuse to write BibTeX over the source PDF (same path, symlink, or hardlink)."""
     try:
-        if pdf_path.resolve() == output_path.resolve():
+        pdf_res = pdf_path.resolve()
+        out_res = output_path.resolve()
+    except OSError:
+        pdf_res = Path(os.path.abspath(pdf_path))
+        out_res = Path(os.path.abspath(output_path))
+    if pdf_res == out_res:
+        raise RuntimeError(
+            f"Refusing to overwrite input PDF with output path: {output_path}"
+        )
+    try:
+        if (
+            pdf_path.exists()
+            and output_path.exists()
+            and os.path.samefile(pdf_path, output_path)
+        ):
             raise RuntimeError(
                 f"Refusing to overwrite input PDF with output path: {output_path}"
             )
     except OSError:
-        # If resolve fails, still compare absolute forms.
-        if Path(os.path.abspath(pdf_path)) == Path(os.path.abspath(output_path)):
-            raise RuntimeError(
-                f"Refusing to overwrite input PDF with output path: {output_path}"
-            )
+        pass
 
 
 def write_text_atomic(path: Path, text: str) -> None:

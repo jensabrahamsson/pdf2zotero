@@ -258,7 +258,7 @@ After import, still confirm the PDF is a **child attachment** (Part B).
 
 This is the part that puts **metadata and the PDF document** into your library.
 
-The CLI and web UI do **not** push into Zotero by themselves. You use Zotero’s normal import and file tools (or Path C, which opens the `.bib` in Zotero), documented by Zotero here:
+The CLI and web UI do **not** push into Zotero by themselves. You use Zotero’s normal import and file tools (or Path C on macOS / Path D on Windows, which open the `.bib` in Zotero), documented by Zotero here:
 
 | Official Zotero page | What it covers |
 |----------------------|----------------|

@@ -351,7 +351,7 @@ Done-when checks mirrored from Mac table.
 
 | Question | Resolution |
 |----------|------------|
-| Require live Windows CI now? | **No** — optional follow-up PR. |
+| Require live Windows CI now? | **Done** — `test-windows` on `windows-latest` (compile + unittest, no Docker). |
 | Support Colima on Windows? | **No**. |
 | Change `bib_escape` globally to skip path separators? | **No** — normalize paths before escape instead. |
 | WSL primary? | **Optional note only**; native Windows path is Docker Desktop + PowerShell. |
@@ -406,7 +406,7 @@ Executable by `/execute-plan windows-plan.md`. Each PR is independently reviewab
   - No machine-specific absolute paths in docs (use `C:\Users\…` placeholders carefully; prefer generic examples).  
   - Verify: doc-only PR; still run compile+unittest to ensure tree is clean.
 
-### PR 4: Optional CI on `windows-latest` (non-blocking follow-up)
+### PR 4: CI on `windows-latest` (implemented)
 
 - **Files/components affected:** `.github/workflows/ci.yml`  
 - **Dependencies:** PR 1 (path tests should run on Windows runner too)  

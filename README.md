@@ -67,7 +67,7 @@ It does **not** replace Zotero, GROBID, or Crossref. It is glue so material **re
 
 ```mermaid
 flowchart TD
-  A[Start GROBID on this machine] --> B[Run pdf2zotero CLI, webui.py, or import-to-zotero.sh]
+  A[Start GROBID on this machine] --> B[Run pdf2zotero CLI, webui.py, or import-to-zotero.sh / .ps1]
   B --> C["Write .bib with file = path to PDF"]
   C --> D["Zotero: File → Import → A file"]
   D --> E{PDF child under item?}
@@ -245,7 +245,7 @@ Windows: `python webui.py` (same flags). Default output is `%USERPROFILE%\Downlo
 | `--grobid-url URL` | Default `http://localhost:8070` |
 | `--timeout SEC` | Default `120` |
 | `--output-dir PATH` | Default `~/Downloads/pdf2zotero` |
-| `--no-doi-lookup` | Default offline mode for the UI (form may override) |
+| `--no-doi-lookup` | Skip doi.org/Crossref (server default for the form; checkbox can override) |
 | `--no-browser` | Do not auto-open a tab |
 
 **Browser:** drop zone, offline checkbox (initialized from `/api/health`), Download .bib, Copy, GROBID status.  

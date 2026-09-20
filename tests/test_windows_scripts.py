@@ -95,6 +95,7 @@ class ImportToZoteroPs1Tests(unittest.TestCase):
         self.assertIn("setup-grobid.ps1", self.text)
         self.assertIn("ExecutionPolicy Bypass", self.text)
         self.assertIn("-Install", self.text)
+        self.assertIn('ArgumentList @("`"$BibPath`"")', self.text)
 
 
 class PowerShellExecutionTests(unittest.TestCase):
