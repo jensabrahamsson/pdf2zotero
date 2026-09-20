@@ -49,6 +49,16 @@ class HelperTests(unittest.TestCase):
         )
         self.assertTrue(webui.safe_filename("CON.pdf").lower().startswith("upload-"))
         self.assertTrue(webui.safe_filename("aux.PDF").lower().startswith("upload-"))
+        self.assertTrue(webui.safe_filename("CON.txt.pdf").lower().startswith("upload-"))
+        self.assertTrue(webui.safe_filename("com1.x.pdf").lower().startswith("upload-"))
+
+    def test_unique_path_skips_existing_bib(self):
+        with tempfile.TemporaryDirectory() as td:
+            directory = Path(td)
+            (directory / "paper.bib").write_text("@article{old}\n", encoding="utf-8")
+            path = webui.unique_path(directory, "paper.pdf", also_suffixes=(".bib",))
+            self.assertEqual(path.name, "paper-2.pdf")
+            self.assertFalse(path.exists())
 
     def test_parse_bool_token(self):
         self.assertTrue(webui.parse_bool_token("true"))

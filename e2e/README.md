@@ -53,8 +53,9 @@ On Windows, invoke `python e2e/harness.py …` (or `py -3`) from the repo root. 
 A conversion counts as OK only if the `.bib` has:
 
 - an `@…{…}` entry,
+- a **title** field with a non-empty value,
 - the **exact** expected Zotero `file` field for that PDF (`:{abs}:application/pdf`),
-- and, on the DOI path, a `doi` field.
+- and, on the DOI path (`DOI metadata …`), a `doi` field.
 
 ## Provenance
 

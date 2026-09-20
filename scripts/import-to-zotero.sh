@@ -10,8 +10,9 @@
 # 2. Kontrollerar och startar GROBID-containern på port 8070 (med live-status).
 # 3. Säkerställer att Zotero är startat.
 # 4. Extraherar metadata och hämtar officiell DOI/BibTeX via pdf2zotero.py.
-# 5. Importerar posten till Zotero med den lokala PDF-filen automatiskt länkad.
+# 5. Öppnar den genererade .bib-filen i Zotero (samma File -> Import som i dokumentationen).
 # 6. Visar tydlig status och framsteg både i terminalen och via macOS-notiser.
+#    Kontrollera att PDF:en sitter som bifogad fil under posten.
 #
 # Copyright (c) 2026 Jens Abrahamsson. Released under the MIT License.
 
@@ -295,14 +296,17 @@ if ! curl -sf "http://127.0.0.1:8070/api/isalive" 2>/dev/null | grep -qi true; t
     docker start grobid >/dev/null
   else
     log_info "Containern 'grobid' saknas. Kör setup-grobid.sh..."
-    "${SCRIPT_DIR}/scripts/setup-grobid.sh" up >/dev/null 2>&1 || true
+    if ! "${SCRIPT_DIR}/scripts/setup-grobid.sh" up; then
+      alert_error "setup-grobid.sh up misslyckades."
+      exit 1
+    fi
   fi
 
   waited=0
-  max_wait=60
+  max_wait=180
   while ! curl -sf "http://127.0.0.1:8070/api/isalive" 2>/dev/null | grep -qi true; do
-    sleep 2
-    waited=$((waited + 2))
+    sleep 5
+    waited=$((waited + 5))
     log_info "Väntar på att GROBID ska svara... (${waited}s / ${max_wait}s)"
     if [ "$waited" -ge "$max_wait" ]; then
       alert_error "GROBID startade inte inom ${max_wait} sekunder på http://127.0.0.1:8070."
@@ -324,9 +328,11 @@ open -a Zotero
 # Steg 4: Konvertera PDF och importera till Zotero
 # -------------------------------------------------------------
 log_step "Steg 4/4: Bearbetar och importerar filer..."
+failed=0
 for pdf_file in "$@"; do
   if [ ! -f "$pdf_file" ]; then
     log_warn "Filen finns inte: $pdf_file"
+    failed=$((failed + 1))
     continue
   fi
 
@@ -340,12 +346,18 @@ for pdf_file in "$@"; do
     if [ -f "$bib_file" ]; then
       log_info "Skickar ${bib_file} till Zotero..."
       open -a Zotero "$bib_file"
-      log_step "Klart! '${base_name}' har importerats till Zotero med PDF bifogad."
-      notify "Klar! Importerat till Zotero:" "${base_name}"
+      log_step "Klart! '${base_name}' är öppnad i Zotero. Kontrollera att PDF:en sitter som bifogad fil."
+      notify "Klar! Öppnad i Zotero — kontrollera PDF-bilagan:" "${base_name}"
     else
       alert_error "Kunde inte hitta genererad BibTeX-fil för ${base_name}"
+      failed=$((failed + 1))
     fi
   else
     alert_error "pdf2zotero misslyckades för ${base_name}"
+    failed=$((failed + 1))
   fi
 done
+
+if [ "$failed" -gt 0 ]; then
+  exit 1
+fi

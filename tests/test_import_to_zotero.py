@@ -95,3 +95,22 @@ class ImportToZoteroScriptTests(unittest.TestCase):
             self.assertFalse(real_service.exists())
         else:
             self.assertEqual(real_service.stat().st_mtime, before_mtime)
+
+    def test_conversion_failures_are_counted_and_pdf_not_overclaimed(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("failed=0", text)
+        self.assertIn('failed=$((failed + 1))', text)
+        self.assertIn('if [ "$failed" -gt 0 ]', text)
+        self.assertIn("max_wait=180", text)
+        self.assertIn("Kontrollera att PDF:en sitter som bifogad fil", text)
+        self.assertNotIn("med PDF bifogad", text)
+        self.assertNotIn("automatiskt länkad", text)
+        setup_idx = text.find("setup-grobid.sh")
+        self.assertGreater(setup_idx, 0)
+        setup_region = text[setup_idx : setup_idx + 400]
+        self.assertNotIn("|| true", setup_region)
+        self.assertIn("misslyckades", setup_region)
+
+
+if __name__ == "__main__":
+    unittest.main()

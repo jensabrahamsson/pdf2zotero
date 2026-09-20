@@ -80,28 +80,49 @@ def upload_basename(name: str) -> str:
     return cleaned.strip() or "upload.pdf"
 
 
+def _windows_reserved_first_token(name: str) -> str | None:
+    """Windows uses the token before the first '.' as the device name (CON.txt.pdf)."""
+    token = (name or "").split(".", 1)[0]
+    if _WINDOWS_RESERVED_STEM.match(token):
+        return token
+    return None
+
+
 def safe_filename(name: str) -> str:
     name = upload_basename(name)
     name = re.sub(r"[^\w.\- ()\[\]]+", "_", name, flags=re.UNICODE)
     name = name.strip(" ._") or "upload.pdf"
     if not name.lower().endswith(".pdf"):
         name += ".pdf"
-    stem = Path(name).stem
-    if _WINDOWS_RESERVED_STEM.match(stem):
-        name = f"upload-{stem}.pdf"
+    if _windows_reserved_first_token(name):
+        name = f"upload-{name}"
     return name
 
 
-def unique_path(directory: Path, filename: str) -> Path:
+def unique_path(
+    directory: Path,
+    filename: str,
+    *,
+    also_suffixes: tuple[str, ...] = (),
+) -> Path:
     """Allocate a free path under directory. Caller must hold STATE.lock when racing."""
+
+    def taken(candidate: Path) -> bool:
+        if candidate.exists():
+            return True
+        for suffix in also_suffixes:
+            if candidate.with_suffix(suffix).exists():
+                return True
+        return False
+
     candidate = directory / filename
-    if not candidate.exists():
+    if not taken(candidate):
         return candidate
     stem = candidate.stem
     suffix = candidate.suffix
     for i in range(2, 1000):
         alt = directory / f"{stem}-{i}{suffix}"
-        if not alt.exists():
+        if not taken(alt):
             return alt
     raise RuntimeError("Could not allocate a unique output filename.")
 
@@ -152,7 +173,7 @@ def convert_upload(
     # Allocate unique paths under the lock; convert outside so uploads can proceed
     # concurrently once names are reserved.
     with STATE.lock:
-        pdf_path = unique_path(STATE.output_dir, filename)
+        pdf_path = unique_path(STATE.output_dir, filename, also_suffixes=(".bib",))
         # Reserve the name so concurrent uploads cannot pick the same path.
         pdf_path.write_bytes(pdf_bytes)
         bib_path = pdf_path.with_suffix(".bib")

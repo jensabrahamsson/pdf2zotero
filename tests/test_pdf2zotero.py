@@ -224,6 +224,16 @@ class NormalizeTitleAndNamesTests(unittest.TestCase):
             pdf2zotero.author_surnames(["Barad, Karen", "Niels Bohr"]),
             {"barad", "bohr"},
         )
+        # casefold so ß matches Crossref family names ( .lower() would not ).
+        self.assertEqual(pdf2zotero.person_surname("Ada Weiß"), "weiss")
+        self.assertEqual(
+            pdf2zotero.crossref_item_surnames({"author": [{"family": "Weiß"}]}),
+            {"weiss"},
+        )
+        self.assertTrue(
+            pdf2zotero.author_surnames(["Ada Weiß"])
+            & pdf2zotero.crossref_item_surnames({"author": [{"family": "Weiß"}]})
+        )
 
 
 class AttachFileTests(unittest.TestCase):
@@ -244,6 +254,29 @@ class AttachFileTests(unittest.TestCase):
             self.assertNotIn("/old.pdf", out_b)
             self.assertIn(field, out_q)
             self.assertNotIn("/old.pdf", out_q)
+            self.assertNotIn("/old.pdf", out_b)
+            self.assertEqual(out_b.lower().count("file"), 1)
+            self.assertEqual(out_q.lower().count("file"), 1)
+
+    def test_replace_double_braces_bare_value_and_trailing_comment(self):
+        with tempfile.TemporaryDirectory() as td:
+            pdf = self._touch_pdf(td)
+            field = pdf2zotero.zotero_file_field(pdf)
+            doubled = "@article{x,\n  file = {{:/old.pdf:application/pdf}}\n}\n"
+            bare = "@article{x,\n  file = :/old.pdf:application/pdf,\n  title = {T}\n}\n"
+            commented = "@article{x,\n  title = {Hello}\n}\n% keep me\n"
+            out_d = pdf2zotero.attach_file_to_bibtex(doubled, pdf)
+            out_b = pdf2zotero.attach_file_to_bibtex(bare, pdf)
+            out_c = pdf2zotero.attach_file_to_bibtex(commented, pdf)
+            self.assertIn(f"file = {{{field}}}", out_d)
+            self.assertNotIn("/old.pdf", out_d)
+            self.assertNotIn("}}", out_d.split("file", 1)[1][:80])
+            self.assertEqual(out_d.lower().count("file"), 1)
+            self.assertIn(f"file = {{{field}}}", out_b)
+            self.assertNotIn("/old.pdf", out_b)
+            self.assertEqual(out_b.lower().count("file"), 1)
+            self.assertIn(f"file = {{{field}}}", out_c)
+            self.assertIn("% keep me", out_c)
 
     def test_insert_when_missing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -339,11 +372,22 @@ class EncodeZoteroFilePathTests(unittest.TestCase):
         self.assertNotIn("26:27", encoded)
         self.assertIn(r"semi\;colon", encoded)
         self.assertNotIn("semi;colon", encoded)
-        self.assertIn("xyz", encoded)
-        self.assertNotIn("{", encoded)
-        self.assertNotIn("}", encoded)
+        self.assertIn("x{y}z", encoded)
+        self.assertIn("{", encoded)
+        self.assertIn("}", encoded)
         self.assertIn(r"weird\\name.pdf", encoded)
         self.assertNotIn(r"\textbackslash{}", encoded)
+
+    def test_braces_in_path_use_quoted_file_field(self):
+        field = pdf2zotero.format_zotero_file_value("/tmp/x{y}z.pdf")
+        self.assertIn("x{y}z", field)
+        dummy = Path("dummy.pdf")
+        with mock.patch.object(pdf2zotero, "zotero_file_field", return_value=field):
+            out = pdf2zotero.attach_file_to_bibtex(
+                "@article{x,\n  title = {Hello}\n}\n", dummy
+            )
+        self.assertIn(f'file = "{field}"', out)
+        self.assertNotIn(f"file = {{{field}}}", out)
 
     def test_zotero_file_field_strips_braces_without_latex(self):
         with tempfile.TemporaryDirectory() as td:
@@ -400,6 +444,37 @@ class ParseTeiTests(unittest.TestCase):
         self.assertEqual(meta.doi, "10.1234/sample.article")
         self.assertEqual(meta.journal, "Journal of Samples")
         self.assertIn("Lovelace", meta.authors[0])
+
+    def test_empty_published_date_falls_through(self):
+        tei = TEI_ARTICLE.replace(
+            b'<date type="published" when="2020-05-01"/>',
+            b'<date type="published"/>',
+        )
+        meta = pdf2zotero.parse_grobid_tei(tei)
+        self.assertEqual(meta.year, "1999")
+
+    def test_citation_doi_is_not_used_as_work_doi(self):
+        tei = TEI_ARTICLE.replace(
+            b'<idno type="DOI">10.1234/sample.article</idno>',
+            b"",
+        ).replace(
+            b"</teiHeader>",
+            b"""</teiHeader>
+  <text>
+    <back>
+      <div type="references">
+        <listBibl>
+          <biblStruct>
+            <idno type="DOI">10.1111/cited.doi</idno>
+          </biblStruct>
+        </listBibl>
+      </div>
+    </back>
+  </text>""",
+        )
+        meta = pdf2zotero.parse_grobid_tei(tei)
+        self.assertEqual(meta.doi, "")
+        self.assertNotIn("cited.doi", meta.doi)
 
     def test_book_monograph(self):
         meta = pdf2zotero.parse_grobid_tei(TEI_BOOK)
@@ -477,6 +552,18 @@ class OutputSafetyTests(unittest.TestCase):
             pdf.write_bytes(b"%PDF-1.4")
             with self.assertRaises(RuntimeError):
                 pdf2zotero.ensure_safe_output_path(pdf, pdf)
+
+    def test_refuse_hardlink_to_pdf(self):
+        with tempfile.TemporaryDirectory() as td:
+            pdf = Path(td) / "x.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            alias = Path(td) / "also.bib"
+            try:
+                os.link(pdf, alias)
+            except OSError:
+                self.skipTest("hardlinks not supported on this filesystem")
+            with self.assertRaises(RuntimeError):
+                pdf2zotero.ensure_safe_output_path(pdf, alias)
 
     def test_atomic_write_and_collision_leaves_pdf(self):
         with tempfile.TemporaryDirectory() as td:

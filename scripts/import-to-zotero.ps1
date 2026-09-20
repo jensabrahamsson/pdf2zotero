@@ -230,7 +230,7 @@ function Open-Zotero {
     $zotero = Get-ZoteroExe
     if ($zotero) {
         if ($BibPath) {
-            Start-Process -FilePath $zotero -ArgumentList $BibPath | Out-Null
+            Start-Process -FilePath $zotero -ArgumentList @("`"$BibPath`"") | Out-Null
         } else {
             Start-Process -FilePath $zotero | Out-Null
         }
