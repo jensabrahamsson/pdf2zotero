@@ -579,6 +579,14 @@ class MergeAndFallbackTests(unittest.TestCase):
         self.assertEqual(out.authors, ["A B"])
         self.assertEqual(out.year, "2021")
 
+    def test_filename_keeps_full_title(self):
+        meta = pdf2zotero.metadata_from_filename(
+            Path("Karen Barad_2007_Meeting the Universe - Quantum Ph.pdf")
+        )
+        self.assertEqual(meta.authors, ["Karen Barad"])
+        self.assertEqual(meta.year, "2007")
+        self.assertEqual(meta.title, "Meeting the Universe - Quantum Ph")
+
     def test_fallback_bibtex_shape(self):
         with tempfile.TemporaryDirectory() as td:
             pdf = Path(td) / "doc.pdf"

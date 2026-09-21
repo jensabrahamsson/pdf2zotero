@@ -673,7 +673,6 @@ def metadata_from_filename(pdf_path: Path) -> Metadata:
         authors = [m.group("author").replace("_", " ").strip()]
         year = m.group("year")
         title = m.group("title").replace("_", " ").strip()
-        title = re.sub(r"\s*-\s*Quantum\s*Ph\.?$", "", title, flags=re.I).strip()
     else:
         title = stem.replace("_", " ").strip()
 
