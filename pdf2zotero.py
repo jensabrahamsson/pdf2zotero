@@ -288,27 +288,52 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
     except ET.ParseError as exc:
         raise RuntimeError(f"GROBID returned invalid XML: {exc}") from exc
 
-    analytic_title = first_text(
+    # Direct children of the main biblStruct. Descendant searches also match
+    # relatedItem and would steal DOI, authors, journal, or year from a citation.
+    bibl = _main_bibl_struct(root)
+    if bibl is not None:
+        analytics = bibl.findall("tei:analytic", TEI_NS)
+        monogrs = bibl.findall("tei:monogr", TEI_NS)
+    else:
+        analytics = root.findall(
+            ".//tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:analytic",
+            TEI_NS,
+        )
+        monogrs = root.findall(
+            ".//tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:monogr",
+            TEI_NS,
+        )
+
+    def _first_in(elements: list[ET.Element], paths: list[str]) -> str:
+        for element in elements:
+            text = first_text(element, paths)
+            if text:
+                return text
+        return ""
+
+    stmt_title = first_text(
         root,
         [
             ".//tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:title[@type='main']",
             ".//tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:title",
-            ".//tei:sourceDesc//tei:analytic/tei:title[@type='main']",
-            ".//tei:sourceDesc//tei:analytic/tei:title",
         ],
     )
-    monogr_title = first_text(
-        root,
+    analytic_title = stmt_title or _first_in(
+        analytics,
         [
-            ".//tei:sourceDesc//tei:monogr/tei:title[@level='m']",
-            ".//tei:sourceDesc//tei:monogr/tei:title[@type='main']",
-            ".//tei:sourceDesc//tei:monogr/tei:title",
+            "./tei:title[@type='main']",
+            "./tei:title",
         ],
     )
-    journal = first_text(
-        root,
-        [".//tei:sourceDesc//tei:monogr/tei:title[@level='j']"],
+    monogr_title = _first_in(
+        monogrs,
+        [
+            "./tei:title[@level='m']",
+            "./tei:title[@type='main']",
+            "./tei:title",
+        ],
     )
+    journal = _first_in(monogrs, ["./tei:title[@level='j']"])
 
     # Books/reports: title often on monogr; articles: analytic (+ journal level=j).
     is_monographic = bool(monogr_title) and not journal and not analytic_title
@@ -317,15 +342,12 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
     else:
         title = analytic_title or monogr_title
 
-    author_nodes = root.findall(
-        ".//tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:analytic/tei:author",
-        TEI_NS,
-    )
+    author_nodes: list[ET.Element] = []
+    for analytic in analytics:
+        author_nodes.extend(analytic.findall("./tei:author", TEI_NS))
     if not author_nodes:
-        author_nodes = root.findall(
-            ".//tei:sourceDesc//tei:monogr/tei:author",
-            TEI_NS,
-        )
+        for monogr in monogrs:
+            author_nodes.extend(monogr.findall("./tei:author", TEI_NS))
     if not author_nodes:
         author_nodes = root.findall(
             ".//tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:author",
@@ -333,17 +355,20 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
         )
     authors = parse_author_nodes(author_nodes)
 
-    publisher = first_text(
-        root,
-        [".//tei:sourceDesc//tei:monogr/tei:imprint/tei:publisher"],
-    )
+    publisher = _first_in(monogrs, ["./tei:imprint/tei:publisher"])
 
-    date = imprint_date(root)
+    date_nodes: list[ET.Element] = []
+    for monogr in monogrs:
+        date_nodes.extend(monogr.findall("./tei:imprint/tei:date", TEI_NS))
+    date = _best_imprint_date(date_nodes) if bibl is not None else imprint_date(root)
     year_match = re.search(r"\b(18|19|20|21)\d{2}\b", date)
     year = year_match.group(0) if year_match else ""
 
     scopes: dict[str, str] = {}
-    for node in root.findall(".//tei:sourceDesc//tei:imprint/tei:biblScope", TEI_NS):
+    scope_nodes: list[ET.Element] = []
+    for monogr in monogrs:
+        scope_nodes.extend(monogr.findall("./tei:imprint/tei:biblScope", TEI_NS))
+    for node in scope_nodes:
         unit = (node.get("unit") or "").lower()
         value = all_text(node) or node.get("from", "")
         if unit and value:
@@ -355,11 +380,15 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
             scopes["page"] = value
 
     doi = ""
-    # Header sourceDesc only — cited works in listBibl/body must not win.
-    for node in root.findall(
-        ".//tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:idno",
-        TEI_NS,
-    ):
+    # Work idno only. relatedItem and listBibl DOIs are other publications.
+    id_nodes: list[ET.Element] = []
+    for analytic in analytics:
+        id_nodes.extend(analytic.findall("./tei:idno", TEI_NS))
+    for monogr in monogrs:
+        id_nodes.extend(monogr.findall("./tei:idno", TEI_NS))
+    if bibl is not None:
+        id_nodes.extend(bibl.findall("./tei:idno", TEI_NS))
+    for node in id_nodes:
         node_type = (node.get("type") or "").lower()
         text = all_text(node)
         if node_type == "doi" and text:
@@ -398,24 +427,72 @@ def parse_grobid_tei(xml_data: bytes) -> Metadata:
     )
 
 
-def imprint_date(root: ET.Element) -> str:
-    """Prefer published date; use @when when present on the chosen node only.
+# Lower rank wins. Untyped dates beat submitted/received; published beats both.
+_IMPRINT_DATE_RANK = {
+    "published": 0,
+    "publication": 0,
+    "issued": 1,
+    "print": 2,
+    "e-published": 2,
+    "epub": 2,
+}
+_WEAK_DATE_RANK = {
+    "accepted": 5,
+    "submitted": 6,
+    "revised": 6,
+    "revision": 6,
+    "received": 7,
+}
 
-    Empty ``<date type="published"/>`` must not block a usable sibling date.
+
+def _date_node_value(node: ET.Element) -> str:
+    when = (node.get("when") or "").strip()
+    if when:
+        return when
+    return all_text(node)
+
+
+def _imprint_date_rank(node: ET.Element) -> int:
+    kind = (node.get("type") or "").strip().lower()
+    if kind in _IMPRINT_DATE_RANK:
+        return _IMPRINT_DATE_RANK[kind]
+    if kind in _WEAK_DATE_RANK:
+        return _WEAK_DATE_RANK[kind]
+    if not kind:
+        return 3
+    return 4
+
+
+def _best_imprint_date(nodes: list[ET.Element]) -> str:
+    """Pick the best usable imprint date. Empty nodes are skipped."""
+    best_rank = 99
+    best = ""
+    for node in nodes:
+        value = _date_node_value(node)
+        if not value:
+            continue
+        rank = _imprint_date_rank(node)
+        if rank < best_rank:
+            best_rank = rank
+            best = value
+    return best
+
+
+def _main_bibl_struct(root: ET.Element) -> ET.Element | None:
+    """The work's own biblStruct, not a nested relatedItem copy."""
+    return root.find(
+        ".//tei:teiHeader/tei:fileDesc/tei:sourceDesc/tei:biblStruct",
+        TEI_NS,
+    )
+
+
+def imprint_date(root: ET.Element) -> str:
+    """Prefer published date; ignore empty nodes and weaker date types.
+
+    ``<date type="submitted"/>`` must not beat an untyped or published sibling.
     """
-    paths = [
-        ".//tei:sourceDesc//tei:imprint/tei:date[@type='published']",
-        ".//tei:sourceDesc//tei:imprint/tei:date",
-    ]
-    for path in paths:
-        for node in root.findall(path, TEI_NS):
-            when = (node.get("when") or "").strip()
-            if when:
-                return when
-            text = all_text(node)
-            if text:
-                return text
-    return ""
+    nodes = root.findall(".//tei:sourceDesc//tei:imprint/tei:date", TEI_NS)
+    return _best_imprint_date(nodes)
 
 
 def clean_doi(value: str) -> str:
@@ -1002,7 +1079,7 @@ def bibtex_field_value(text: str, name: str) -> str | None:
 
 def looks_like_bibtex(text: str) -> bool:
     """True if text is a usable BibTeX record (entry, key, non-empty title)."""
-    stripped = (text or "").strip()
+    stripped = (text or "").lstrip("\ufeff").strip()
     if not stripped.startswith("@"):
         return False
     head = stripped[:400].lower()
@@ -1040,7 +1117,7 @@ def fetch_bibtex_for_doi(doi: str, timeout: int) -> str:
     )
     try:
         raw = _http_read_with_retry(request, timeout)
-        text = raw.decode("utf-8", errors="replace").strip()
+        text = raw.decode("utf-8", errors="replace").lstrip("\ufeff").strip()
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"DOI lookup failed for {doi}: HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
@@ -1189,7 +1266,11 @@ def attach_file_to_bibtex(bibtex: str, pdf_path: Path) -> str:
         return bibtex if bibtex.endswith("\n") else bibtex + "\n"
     entry_start, close_at = span
     entry = bibtex[entry_start:close_at]
-    assign = re.search(r"(?im)^(?P<pre>\s*file\s*=\s*)", entry)
+    # Line-start, or after a comma, so an inline `file =` is replaced once.
+    assign = re.search(
+        r"(?i)(?P<pre>(?:^|[,\n\r])[ \t]*file\s*=\s*)",
+        entry,
+    )
     if assign:
         val_end = _skip_bibtex_value(entry, assign.end())
         raw_val = entry[assign.end() : val_end].lstrip()
@@ -1313,8 +1394,11 @@ def fallback_bibtex(metadata: Metadata, pdf_path: Path) -> str:
     lines = [f"@{entry}{{{key},"]
     for index, (name, value) in enumerate(fields):
         comma = "," if index < len(fields) - 1 else ""
-        val = value if name == "file" else bib_escape(value)
-        lines.append(f"  {name} = {{{val}}}{comma}")
+        if name == "file":
+            rendered = _file_field_wrapped(value)
+        else:
+            rendered = "{" + bib_escape(value) + "}"
+        lines.append(f"  {name} = {rendered}{comma}")
     lines.append("}")
     return "\n".join(lines) + "\n"
 

@@ -458,6 +458,14 @@ def main() -> int:
         print(f"Error: missing static UI directory: {STATIC_DIR}", file=sys.stderr)
         return 1
 
+    host = args.host.strip().lower()
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        print(
+            f"Warning: web UI is bound to {args.host}, not localhost. "
+            "Anyone who can reach this address can upload PDFs.",
+            file=sys.stderr,
+        )
+
     STATE = AppState(
         grobid_url=args.grobid_url,
         timeout=args.timeout,

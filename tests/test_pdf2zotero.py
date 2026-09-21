@@ -278,6 +278,17 @@ class AttachFileTests(unittest.TestCase):
             self.assertIn(f"file = {{{field}}}", out_c)
             self.assertIn("% keep me", out_c)
 
+    def test_inline_file_field_is_replaced_once(self):
+        with tempfile.TemporaryDirectory() as td:
+            pdf = self._touch_pdf(td)
+            field = pdf2zotero.zotero_file_field(pdf)
+            inline = "@article{x, title = {Hello}, file = {:/old.pdf:application/pdf}}\n"
+            out = pdf2zotero.attach_file_to_bibtex(inline, pdf)
+            self.assertEqual(out.lower().count("file"), 1)
+            self.assertIn(field, out)
+            self.assertNotIn("/old.pdf", out)
+            self.assertIn("title = {Hello}", out)
+
     def test_insert_when_missing(self):
         with tempfile.TemporaryDirectory() as td:
             pdf = self._touch_pdf(td)
@@ -476,6 +487,46 @@ class ParseTeiTests(unittest.TestCase):
         self.assertEqual(meta.doi, "")
         self.assertNotIn("cited.doi", meta.doi)
 
+    def test_related_item_does_not_override_work(self):
+        tei = TEI_ARTICLE.replace(
+            b"<biblStruct>",
+            b"""<biblStruct>
+          <relatedItem type="references">
+            <biblStruct>
+              <analytic>
+                <title level="a" type="main">A Different Cited Paper</title>
+                <author>
+                  <persName><forename>Eve</forename><surname>Cited</surname></persName>
+                </author>
+                <idno type="DOI">10.9999/related.doi</idno>
+              </analytic>
+              <monogr>
+                <title level="j">Other Journal</title>
+                <imprint>
+                  <date type="published" when="1990-01-01"/>
+                  <biblScope unit="volume">99</biblScope>
+                </imprint>
+              </monogr>
+            </biblStruct>
+          </relatedItem>""",
+        )
+        meta = pdf2zotero.parse_grobid_tei(tei)
+        self.assertEqual(meta.doi, "10.1234/sample.article")
+        self.assertEqual(meta.year, "2020")
+        self.assertEqual(meta.volume, "12")
+        self.assertEqual(meta.journal, "Journal of Samples")
+        self.assertIn("Lovelace", meta.authors[0])
+        self.assertNotIn("Cited", " ".join(meta.authors))
+        self.assertNotIn("Different Cited", meta.title)
+
+    def test_submitted_date_does_not_beat_untyped_publication(self):
+        tei = TEI_ARTICLE.replace(
+            b'<date type="published" when="2020-05-01"/>\n              <date when="1999-01-01"/>',
+            b'<date type="submitted" when="2010-01-01"/>\n              <date when="2020-05-01"/>',
+        )
+        meta = pdf2zotero.parse_grobid_tei(tei)
+        self.assertEqual(meta.year, "2020")
+
     def test_book_monograph(self):
         meta = pdf2zotero.parse_grobid_tei(TEI_BOOK)
         self.assertEqual(meta.entry_type, "book")
@@ -544,6 +595,15 @@ class MergeAndFallbackTests(unittest.TestCase):
             self.assertIn(f"file = {{{pdf2zotero.zotero_file_field(pdf)}}}", bib)
             self.assertIn("lovelace", bib.lower())
 
+    def test_fallback_quotes_file_field_when_path_has_braces(self):
+        meta = pdf2zotero.Metadata(title="Hello World Paper", entry_type="article")
+        field = ":/tmp/x{y}z.pdf:application/pdf"
+        with mock.patch.object(pdf2zotero, "zotero_file_field", return_value=field):
+            bib = pdf2zotero.fallback_bibtex(meta, Path("dummy.pdf"))
+        self.assertIn(f'file = "{field}"', bib)
+        self.assertNotIn(f"file = {{{field}}}", bib)
+        self.assertTrue(pdf2zotero.looks_like_bibtex(bib))
+
 
 class OutputSafetyTests(unittest.TestCase):
     def test_refuse_same_path(self):
@@ -610,6 +670,11 @@ class LooksLikeBibtexTests(unittest.TestCase):
         self.assertTrue(
             pdf2zotero.looks_like_bibtex(
                 "@article{Smith2020hello,\n  title = {Hello}\n}\n"
+            )
+        )
+        self.assertTrue(
+            pdf2zotero.looks_like_bibtex(
+                "\ufeff@article{Smith2020hello,\n  title = {Hello}\n}\n"
             )
         )
 
